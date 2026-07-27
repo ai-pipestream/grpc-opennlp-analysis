@@ -1,0 +1,12 @@
+# Buf STANDARD lint for the OpenNLP analysis proto contract.
+# Lint only — codegen stays protoc / protobuf-gradle-plugin. Not a runtime dependency.
+version: v2
+modules:
+  - path: src/main/proto
+    name: buf.build/ai-pipestream/opennlp-analysis
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE
