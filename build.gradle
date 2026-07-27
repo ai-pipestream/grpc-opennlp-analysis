@@ -124,6 +124,13 @@ graalvmNative {
                     '--no-fallback',
                     '--report-unsupported-elements-at-runtime',
                     '-H:+ReportExceptionStackTraces',
+                    // The shaded netty-tcnative classes call into JNI from their class
+                    // initializers; on GraalVM CE 25.0.x (e.g. the community container
+                    // image) build-time initialization aborts the image build. They are
+                    // only touched for OpenSSL-backed SSL, which this service does not
+                    // use, so run-time initialization is safe everywhere.
+                    '--initialize-at-run-time=io.grpc.netty.shaded.io.netty.internal.tcnative',
+                    '--initialize-at-run-time=io.grpc.netty.shaded.io.netty.handler.ssl',
             ])
         }
     }
