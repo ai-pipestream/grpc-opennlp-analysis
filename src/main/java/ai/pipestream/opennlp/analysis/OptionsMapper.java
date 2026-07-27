@@ -17,9 +17,10 @@
 
 package ai.pipestream.opennlp.analysis;
 
+import java.util.Objects;
+
 import ai.pipestream.opennlp.analysis.pipeline.PipelineOptions;
 import ai.pipestream.opennlp.analysis.v1.AnalysisOptions;
-import ai.pipestream.opennlp.analysis.v1.EmbeddingOptions;
 import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
 import io.grpc.Status;
 
@@ -34,14 +35,25 @@ final class OptionsMapper {
   }
 
   static PipelineOptions fromProto(AnalysisOptions proto) {
+    final PipelineOptions.Stemmer stemmer = stemmer(proto.getStemmer());
     final PipelineOptions.TermVectorSpec termVectors;
     if (proto.hasTermVectors() && proto.getTermVectors().getEnabled()) {
+      final PipelineOptions.TermVectorSource source =
+          termVectorSource(proto.getTermVectors().getSource());
+      if (source == PipelineOptions.TermVectorSource.STEMS
+          && stemmer == PipelineOptions.Stemmer.NONE) {
+        throw Status.INVALID_ARGUMENT
+            .withDescription("term vector source STEMS requires a stemmer other "
+                + "than STEMMER_NONE: the stem is the term identity in this mode")
+            .asRuntimeException();
+      }
       termVectors = new PipelineOptions.TermVectorSpec(
           termVectorMode(proto.getTermVectors().getMode()),
           proto.getTermVectors().getRungsList().stream()
               .map(OptionsMapper::rung)
-              .filter(java.util.Objects::nonNull)
-              .toList());
+              .filter(Objects::nonNull)
+              .toList(),
+          source);
     } else {
       termVectors = null;
     }
@@ -51,7 +63,8 @@ final class OptionsMapper {
         proto.getSentenceDetection(),
         proto.getPosTags(),
         proto.getNer(),
-        stemmer(proto.getStemmer()),
+        proto.getLemmatize(),
+        stemmer,
         termVectors,
         proto.hasEmbeddings() ? embeddingSource(proto.getEmbeddings().getSource()) : null);
   }
@@ -65,21 +78,19 @@ final class OptionsMapper {
     };
   }
 
+  /**
+   * Proto {@code STEMMER_*} names map onto {@link PipelineOptions.Stemmer} by
+   * stripping the prefix; both enums are kept in the same naming convention.
+   */
   private static PipelineOptions.Stemmer stemmer(AnalysisOptions.Stemmer value) {
-    return switch (value) {
-      case STEMMER_UNSPECIFIED, STEMMER_NONE -> PipelineOptions.Stemmer.NONE;
-      case STEMMER_PORTER -> PipelineOptions.Stemmer.PORTER;
-      case STEMMER_SNOWBALL_ENGLISH -> PipelineOptions.Stemmer.SNOWBALL_ENGLISH;
-      case STEMMER_SNOWBALL_GERMAN -> PipelineOptions.Stemmer.SNOWBALL_GERMAN;
-      case STEMMER_SNOWBALL_FRENCH -> PipelineOptions.Stemmer.SNOWBALL_FRENCH;
-      case STEMMER_SNOWBALL_SPANISH -> PipelineOptions.Stemmer.SNOWBALL_SPANISH;
-      case STEMMER_LIGHT_ENGLISH -> PipelineOptions.Stemmer.LIGHT_ENGLISH;
-      case STEMMER_LIGHT_GERMAN -> PipelineOptions.Stemmer.LIGHT_GERMAN;
-      case STEMMER_LIGHT_FRENCH -> PipelineOptions.Stemmer.LIGHT_FRENCH;
-      case STEMMER_LIGHT_SPANISH -> PipelineOptions.Stemmer.LIGHT_SPANISH;
-      case UNRECOGNIZED -> throw Status.INVALID_ARGUMENT
+    if (value == AnalysisOptions.Stemmer.UNRECOGNIZED) {
+      throw Status.INVALID_ARGUMENT
           .withDescription("unrecognized stemmer value").asRuntimeException();
-    };
+    }
+    if (value == AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED) {
+      return PipelineOptions.Stemmer.NONE;
+    }
+    return PipelineOptions.Stemmer.valueOf(value.name().substring("STEMMER_".length()));
   }
 
   private static PipelineOptions.TermVectorMode termVectorMode(
@@ -92,24 +103,36 @@ final class OptionsMapper {
     };
   }
 
-  private static PipelineOptions.NormalizerRung rung(
-      TermVectorOptions.NormalizerRung value) {
+  private static PipelineOptions.TermVectorSource termVectorSource(
+      TermVectorOptions.Source value) {
     return switch (value) {
-      case NORMALIZER_RUNG_STRIP_INVISIBLE -> PipelineOptions.NormalizerRung.STRIP_INVISIBLE;
-      case NORMALIZER_RUNG_WHITESPACE -> PipelineOptions.NormalizerRung.WHITESPACE;
-      case NORMALIZER_RUNG_DASHES -> PipelineOptions.NormalizerRung.DASHES;
-      case NORMALIZER_RUNG_QUOTES -> PipelineOptions.NormalizerRung.QUOTES;
-      case NORMALIZER_RUNG_DIGITS -> PipelineOptions.NormalizerRung.DIGITS;
-      case NORMALIZER_RUNG_FULL_CASE_FOLD -> PipelineOptions.NormalizerRung.FULL_CASE_FOLD;
-      // UNSPECIFIED rungs are ignored per the contract.
-      case NORMALIZER_RUNG_UNSPECIFIED -> null;
+      case SOURCE_UNSPECIFIED, SOURCE_TOKENS -> PipelineOptions.TermVectorSource.TOKENS;
+      case SOURCE_STEMS -> PipelineOptions.TermVectorSource.STEMS;
       case UNRECOGNIZED -> throw Status.INVALID_ARGUMENT
-          .withDescription("unrecognized normalizer rung value").asRuntimeException();
+          .withDescription("unrecognized term vector source value").asRuntimeException();
     };
   }
 
+  /**
+   * Proto {@code NORMALIZER_RUNG_*} names map onto
+   * {@link PipelineOptions.NormalizerRung} by stripping the prefix.
+   * UNSPECIFIED rungs are ignored per the contract.
+   */
+  private static PipelineOptions.NormalizerRung rung(
+      TermVectorOptions.NormalizerRung value) {
+    if (value == TermVectorOptions.NormalizerRung.UNRECOGNIZED) {
+      throw Status.INVALID_ARGUMENT
+          .withDescription("unrecognized normalizer rung value").asRuntimeException();
+    }
+    if (value == TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_UNSPECIFIED) {
+      return null;
+    }
+    return PipelineOptions.NormalizerRung.valueOf(
+        value.name().substring("NORMALIZER_RUNG_".length()));
+  }
+
   private static PipelineOptions.EmbeddingSource embeddingSource(
-      EmbeddingOptions.Source value) {
+      ai.pipestream.opennlp.analysis.v1.EmbeddingOptions.Source value) {
     return switch (value) {
       case SOURCE_UNSPECIFIED, SOURCE_SENTENCES -> PipelineOptions.EmbeddingSource.SENTENCES;
       case SOURCE_TOKENS -> PipelineOptions.EmbeddingSource.TOKENS;

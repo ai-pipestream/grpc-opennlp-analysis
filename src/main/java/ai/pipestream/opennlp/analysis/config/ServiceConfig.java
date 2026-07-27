@@ -35,9 +35,15 @@ import java.nio.file.Path;
  *                     is not offered
  * @param nerModelPath path to a token name finder model file, or {@code null}
  *                     when NER is not offered
+ * @param hunspellAffPath path to a Hunspell .aff file, or {@code null}
+ * @param hunspellDicPath path to a Hunspell .dic file, or {@code null}
+ * @param lemmatizerDictPath path to a lemmatizer dictionary file (token/lemma
+ *                           pairs per line), or {@code null}
  */
 public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
-                            Path posModelPath, Path nerModelPath) {
+                            Path posModelPath, Path nerModelPath,
+                            Path hunspellAffPath, Path hunspellDicPath,
+                            Path lemmatizerDictPath) {
 
   /** Default gRPC listen port. */
   public static final int DEFAULT_PORT = 50051;
@@ -64,7 +70,10 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
     return new ServiceConfig(port, maxTextBytes,
         path(setting("OPENNLP_EMBEDDINGS_DIR", "opennlp.embeddings.dir", null)),
         path(setting("OPENNLP_POS_MODEL", "opennlp.pos.model", null)),
-        path(setting("OPENNLP_NER_MODEL", "opennlp.ner.model", null)));
+        path(setting("OPENNLP_NER_MODEL", "opennlp.ner.model", null)),
+        path(setting("OPENNLP_HUNSPELL_AFF", "opennlp.hunspell.aff", null)),
+        path(setting("OPENNLP_HUNSPELL_DIC", "opennlp.hunspell.dic", null)),
+        path(setting("OPENNLP_LEMMATIZER_DICT", "opennlp.lemmatizer.dict", null)));
   }
 
   private static String setting(String envVar, String property, String fallback) {

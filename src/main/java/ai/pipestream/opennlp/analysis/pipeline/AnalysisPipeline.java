@@ -19,6 +19,7 @@ package ai.pipestream.opennlp.analysis.pipeline;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import opennlp.tools.document.Document;
 import opennlp.tools.document.DocumentAnalyzer;
@@ -38,14 +39,29 @@ import opennlp.tools.stemmer.SharingStemmer;
 import opennlp.tools.stemmer.Stemmer;
 import opennlp.tools.stemmer.StemmerAnnotator;
 import opennlp.tools.stemmer.StemmerFactory;
+import opennlp.tools.stemmer.hunspell.HunspellStemmerFactory;
 import opennlp.tools.stemmer.light.EnglishMinimalStemmer;
+import opennlp.tools.stemmer.light.FinnishLightStemmer;
 import opennlp.tools.stemmer.light.FrenchLightStemmer;
+import opennlp.tools.stemmer.light.FrenchMinimalStemmer;
 import opennlp.tools.stemmer.light.GermanLightStemmer;
+import opennlp.tools.stemmer.light.GermanMinimalStemmer;
+import opennlp.tools.stemmer.light.HungarianLightStemmer;
+import opennlp.tools.stemmer.light.ItalianLightStemmer;
+import opennlp.tools.stemmer.light.NorwegianLightStemmer;
+import opennlp.tools.stemmer.light.NorwegianMinimalStemmer;
+import opennlp.tools.stemmer.light.NorwegianVariety;
+import opennlp.tools.stemmer.light.PortugueseLightStemmer;
+import opennlp.tools.stemmer.light.RussianLightStemmer;
 import opennlp.tools.stemmer.light.SpanishLightStemmer;
+import opennlp.tools.stemmer.light.SpanishMinimalStemmer;
+import opennlp.tools.stemmer.light.SwedishLightStemmer;
+import opennlp.tools.stemmer.light.SwedishMinimalStemmer;
 import opennlp.tools.stemmer.snowball.SnowballStemmer;
 import opennlp.tools.termvector.TermVectorAnnotator;
 import opennlp.tools.tokenize.SimpleTokenizer;
 import opennlp.tools.tokenize.WhitespaceTokenizer;
+import opennlp.tools.util.normalizer.GermanUmlautCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.OffsetAwareNormalizer;
 import opennlp.tools.util.normalizer.TextNormalizer;
 
@@ -78,8 +94,9 @@ public final class AnalysisPipeline {
 
   /**
    * Builds a pipeline for the given options against the shared environment.
-   * Requested features whose model the environment lacks are skipped and
-   * reported in {@link #warnings()}; the pipeline still serves everything else.
+   * Requested features whose model or dictionary the environment lacks are
+   * skipped and reported in {@link #warnings()}; the pipeline still serves
+   * everything else.
    *
    * @param options the option-set, must not be {@code null}
    * @param environment the shared server resources, must not be {@code null}
@@ -111,7 +128,20 @@ public final class AnalysisPipeline {
     });
 
     if (options.stemmer() != PipelineOptions.Stemmer.NONE) {
-      builder.add(new StemmerAnnotator(threadSafeStemmer(options.stemmer())));
+      final Stemmer stemmer = stemmer(options.stemmer(), environment, warnings);
+      if (stemmer != null) {
+        builder.add(new StemmerAnnotator(stemmer));
+      }
+    }
+
+    // Lemmatization is service-side (like stem-sourced term vectors):
+    // LemmatizerAnnotator requires the POS layer, which needs a model, so the
+    // pipeline only records whether the dictionary is missing; the service
+    // joins the dictionary onto the tokens after analysis, using the POS
+    // layer when it happens to exist and a neutral tag otherwise.
+    if (options.lemmatize() && environment.lemmatizer() == null) {
+      warnings.add("lemmatize was requested but no lemmatizer dictionary is "
+          + "configured (OPENNLP_LEMMATIZER_DICT); lemmas stays empty");
     }
 
     if (options.posTags()) {
@@ -136,7 +166,11 @@ public final class AnalysisPipeline {
       }
     }
 
-    if (options.termVectors() != null) {
+    // Stem-sourced term vectors group occurrences service-side by the stems
+    // layer; the TermVectorAnnotator only runs for token-sourced vectors,
+    // where the aligned normalizer chain defines term identity.
+    if (options.termVectors() != null
+        && options.termVectors().source() == PipelineOptions.TermVectorSource.TOKENS) {
       final PipelineOptions.TermVectorSpec spec = options.termVectors();
       builder.add(new TermVectorAnnotator(alignedNormalizer(spec.rungs()),
           spec.mode() == PipelineOptions.TermVectorMode.SCORING_ONLY
@@ -219,31 +253,84 @@ public final class AnalysisPipeline {
     if (rungs.contains(PipelineOptions.NormalizerRung.DIGITS)) {
       builder.digits();
     }
+    if (rungs.contains(PipelineOptions.NormalizerRung.ELLIPSIS)) {
+      builder.ellipsis();
+    }
+    if (rungs.contains(PipelineOptions.NormalizerRung.BULLETS)) {
+      builder.bullets();
+    }
+    if (rungs.contains(PipelineOptions.NormalizerRung.EMOJI_TO_EMOTICON)) {
+      builder.emojiToEmoticon();
+    }
+    if (rungs.contains(PipelineOptions.NormalizerRung.EMOTICON_TO_EMOJI)) {
+      builder.emoticonToEmoji();
+    }
     if (rungs.contains(PipelineOptions.NormalizerRung.FULL_CASE_FOLD)) {
       builder.fullCaseFold();
+    }
+    if (rungs.contains(PipelineOptions.NormalizerRung.GERMAN_UMLAUT)) {
+      // No dedicated builder method, but the rung is offset-aware and composes.
+      builder.with(GermanUmlautCharSequenceNormalizer.getInstance());
     }
     return builder.buildAligned();
   }
 
   /**
-   * Wraps every stemmer in a {@link SharingStemmer}, which hands each thread
-   * its own delegate from the factory: the classic {@code PorterStemmer} is
-   * stateful, and even the stateless light stemmers stay cheap to duplicate.
+   * Resolves the stemmer for a pipeline, or {@code null} (with a warning) when
+   * the choice needs a dictionary the environment lacks. Every stemmer is
+   * wrapped in a {@link SharingStemmer}, which hands each thread its own
+   * delegate from the factory: the classic {@code PorterStemmer} is stateful,
+   * and even the stateless light stemmers stay cheap to duplicate.
    */
-  private static Stemmer threadSafeStemmer(PipelineOptions.Stemmer choice) {
-    final StemmerFactory factory = switch (choice) {
+  private static Stemmer stemmer(PipelineOptions.Stemmer choice,
+                                 PipelineEnvironment environment,
+                                 List<String> warnings) {
+    if (choice == PipelineOptions.Stemmer.HUNSPELL) {
+      if (environment.hunspellDictionary() == null) {
+        warnings.add("STEMMER_HUNSPELL was requested but no Hunspell dictionary is "
+            + "configured (OPENNLP_HUNSPELL_AFF + OPENNLP_HUNSPELL_DIC); "
+            + "stems stays empty");
+        return null;
+      }
+      return new SharingStemmer(new HunspellStemmerFactory(environment.hunspellDictionary()));
+    }
+    return new SharingStemmer(stemmerFactory(choice));
+  }
+
+  /**
+   * The factory behind each algorithmic stemmer. The {@code SNOWBALL_*} values
+   * map 1:1 onto {@link SnowballStemmer.ALGORITHM} by name; the light and
+   * minimal classes are their own factories.
+   */
+  private static StemmerFactory stemmerFactory(PipelineOptions.Stemmer choice) {
+    final String name = choice.name();
+    if (name.startsWith("SNOWBALL_")) {
+      final SnowballStemmer.ALGORITHM algorithm =
+          SnowballStemmer.ALGORITHM.valueOf(name.substring("SNOWBALL_".length()));
+      return () -> new SnowballStemmer(algorithm);
+    }
+    return switch (choice) {
       case PORTER -> new PorterStemmerFactory();
-      case SNOWBALL_ENGLISH -> () -> new SnowballStemmer(SnowballStemmer.ALGORITHM.ENGLISH);
-      case SNOWBALL_GERMAN -> () -> new SnowballStemmer(SnowballStemmer.ALGORITHM.GERMAN);
-      case SNOWBALL_FRENCH -> () -> new SnowballStemmer(SnowballStemmer.ALGORITHM.FRENCH);
-      case SNOWBALL_SPANISH -> () -> new SnowballStemmer(SnowballStemmer.ALGORITHM.SPANISH);
       case LIGHT_ENGLISH -> new EnglishMinimalStemmer();
       case LIGHT_GERMAN -> new GermanLightStemmer();
       case LIGHT_FRENCH -> new FrenchLightStemmer();
       case LIGHT_SPANISH -> new SpanishLightStemmer();
-      case NONE -> throw new IllegalArgumentException("NONE has no stemmer");
+      case LIGHT_FINNISH -> new FinnishLightStemmer();
+      case LIGHT_HUNGARIAN -> new HungarianLightStemmer();
+      case LIGHT_ITALIAN -> new ItalianLightStemmer();
+      case LIGHT_NORWEGIAN_BOKMAAL -> new NorwegianLightStemmer(NorwegianVariety.BOKMAAL);
+      case LIGHT_NORWEGIAN_NYNORSK -> new NorwegianLightStemmer(NorwegianVariety.NYNORSK);
+      case LIGHT_PORTUGUESE -> new PortugueseLightStemmer();
+      case LIGHT_RUSSIAN -> new RussianLightStemmer();
+      case LIGHT_SWEDISH -> new SwedishLightStemmer();
+      case MINIMAL_GERMAN -> new GermanMinimalStemmer();
+      case MINIMAL_FRENCH -> new FrenchMinimalStemmer();
+      case MINIMAL_NORWEGIAN_BOKMAAL -> new NorwegianMinimalStemmer(NorwegianVariety.BOKMAAL);
+      case MINIMAL_NORWEGIAN_NYNORSK -> new NorwegianMinimalStemmer(NorwegianVariety.NYNORSK);
+      case MINIMAL_SPANISH -> new SpanishMinimalStemmer();
+      case MINIMAL_SWEDISH -> new SwedishMinimalStemmer();
+      default -> throw new IllegalArgumentException("no factory for " + choice);
     };
-    return new SharingStemmer(factory);
   }
 
   /** Serializes a model-based annotator whose implementation is not thread-safe. */
@@ -261,12 +348,12 @@ public final class AnalysisPipeline {
     }
 
     @Override
-    public java.util.Set<LayerKey<?>> requires() {
+    public Set<LayerKey<?>> requires() {
       return delegate.requires();
     }
 
     @Override
-    public java.util.Set<LayerKey<?>> provides() {
+    public Set<LayerKey<?>> provides() {
       return delegate.provides();
     }
   }

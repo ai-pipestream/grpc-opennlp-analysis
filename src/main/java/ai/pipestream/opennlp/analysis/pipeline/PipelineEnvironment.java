@@ -26,12 +26,15 @@ import org.slf4j.LoggerFactory;
 
 import ai.pipestream.opennlp.analysis.config.ServiceConfig;
 import opennlp.embeddings.StaticEmbeddingModel;
+import opennlp.tools.lemmatizer.DictionaryLemmatizer;
 import opennlp.tools.namefind.TokenNameFinderModel;
 import opennlp.tools.postag.POSModel;
+import opennlp.tools.stemmer.hunspell.HunspellDictionary;
 
 /**
  * Server-level shared resources that pipelines draw on: the static embedding
- * model and the optional POS/NER models. Loaded once at startup and shared by
+ * model, the optional POS/NER models, the optional Hunspell dictionary, and
+ * the optional lemmatizer dictionary. Loaded once at startup and shared by
  * every cached pipeline. All fields may be {@code null}; a {@code null} field
  * means the corresponding feature is unavailable and requests for it resolve
  * to a warning, never to a runtime model download.
@@ -42,24 +45,31 @@ import opennlp.tools.postag.POSModel;
  *                                 model was loaded from, or {@code null}
  * @param posModel the POS model, or {@code null} when POS is unavailable
  * @param nerModel the NER model, or {@code null} when NER is unavailable
+ * @param hunspellDictionary the Hunspell dictionary, or {@code null} when
+ *                           STEMMER_HUNSPELL is unavailable
+ * @param lemmatizer the dictionary lemmatizer, or {@code null} when
+ *                   lemmatization is unavailable
  * @param loadWarnings problems encountered while loading configured models
  */
 public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                                   String embeddingsDirDescription,
                                   POSModel posModel,
                                   TokenNameFinderModel nerModel,
+                                  HunspellDictionary hunspellDictionary,
+                                  DictionaryLemmatizer lemmatizer,
                                   List<String> loadWarnings) {
 
   private static final Logger LOG = LoggerFactory.getLogger(PipelineEnvironment.class);
 
   /**
-   * An environment with no models at all: embeddings, POS, and NER are all
-   * unavailable. Useful for tests and for the pure model-free deployment.
+   * An environment with no models at all: embeddings, POS, NER, Hunspell, and
+   * lemmatization are all unavailable. Useful for tests and for the pure
+   * model-free deployment.
    *
    * @return the empty environment, never {@code null}
    */
   public static PipelineEnvironment empty() {
-    return new PipelineEnvironment(null, null, null, null, List.of());
+    return new PipelineEnvironment(null, null, null, null, null, null, List.of());
   }
 
   /**
@@ -118,7 +128,39 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
       }
     }
 
+    HunspellDictionary hunspellDictionary = null;
+    if (config.hunspellAffPath() != null && config.hunspellDicPath() != null) {
+      try {
+        hunspellDictionary =
+            HunspellDictionary.load(config.hunspellAffPath(), config.hunspellDicPath());
+        LOG.info("Loaded Hunspell dictionary from {} + {}",
+            config.hunspellAffPath(), config.hunspellDicPath());
+      } catch (IOException | RuntimeException e) {
+        warnings.add("Hunspell is configured (" + config.hunspellAffPath() + ", "
+            + config.hunspellDicPath() + ") but the dictionary could not be loaded: "
+            + e.getMessage() + "; STEMMER_HUNSPELL requests return a warning and no stems");
+        LOG.error("Could not load Hunspell dictionary", e);
+      }
+    } else if (config.hunspellAffPath() != null || config.hunspellDicPath() != null) {
+      warnings.add("Hunspell needs both OPENNLP_HUNSPELL_AFF and OPENNLP_HUNSPELL_DIC; "
+          + "only one is set, so STEMMER_HUNSPELL requests return a warning and no stems");
+    }
+
+    DictionaryLemmatizer lemmatizer = null;
+    if (config.lemmatizerDictPath() != null) {
+      try {
+        lemmatizer = new DictionaryLemmatizer(config.lemmatizerDictPath());
+        LOG.info("Loaded lemmatizer dictionary from {}", config.lemmatizerDictPath());
+      } catch (IOException | RuntimeException e) {
+        warnings.add("OPENNLP_LEMMATIZER_DICT is set to " + config.lemmatizerDictPath()
+            + " but the dictionary could not be loaded: " + e.getMessage()
+            + "; lemmatize requests return a warning and no lemmas");
+        LOG.error("Could not load lemmatizer dictionary from {}",
+            config.lemmatizerDictPath(), e);
+      }
+    }
+
     return new PipelineEnvironment(embeddingModel, embeddingsDir, posModel, nerModel,
-        List.copyOf(warnings));
+        hunspellDictionary, lemmatizer, List.copyOf(warnings));
   }
 }

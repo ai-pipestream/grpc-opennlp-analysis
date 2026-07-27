@@ -31,12 +31,14 @@ import opennlp.tools.document.DocumentAnalyzer;
  * @param sentenceDetection whether to split sentences
  * @param posTags whether POS tagging was requested
  * @param ner whether named-entity recognition was requested
+ * @param lemmatize whether dictionary lemmatization was requested
  * @param stemmer stemmer selection
  * @param termVectors term vector specification, or {@code null} when disabled
  * @param embeddingSource embedding source layer, or {@code null} when disabled
  */
 public record PipelineOptions(String language, Tokenizer tokenizer, boolean sentenceDetection,
-                              boolean posTags, boolean ner, Stemmer stemmer,
+                              boolean posTags, boolean ner, boolean lemmatize,
+                              Stemmer stemmer,
                               TermVectorSpec termVectors, EmbeddingSource embeddingSource) {
 
   /** Model-free tokenizers. */
@@ -47,7 +49,13 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     SIMPLE
   }
 
-  /** Model-free, algorithmic stemmers. */
+  /**
+   * Model-free stemmers. The {@code SNOWBALL_*} values map 1:1 onto
+   * {@code SnowballStemmer.ALGORITHM}; the {@code LIGHT_*} and
+   * {@code MINIMAL_*} values map onto the light stemmer classes;
+   * {@code HUNSPELL} needs a server-configured dictionary. All stemmers work
+   * on the raw token surface form: they neither lowercase nor fold.
+   */
   public enum Stemmer {
     /** No stemming. */
     NONE,
@@ -61,6 +69,40 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     SNOWBALL_FRENCH,
     /** Snowball Spanish. */
     SNOWBALL_SPANISH,
+    /** Snowball Arabic. */
+    SNOWBALL_ARABIC,
+    /** Snowball Catalan. */
+    SNOWBALL_CATALAN,
+    /** Snowball Danish. */
+    SNOWBALL_DANISH,
+    /** Snowball Dutch. */
+    SNOWBALL_DUTCH,
+    /** Snowball Finnish. */
+    SNOWBALL_FINNISH,
+    /** Snowball Greek. */
+    SNOWBALL_GREEK,
+    /** Snowball Hungarian. */
+    SNOWBALL_HUNGARIAN,
+    /** Snowball Indonesian. */
+    SNOWBALL_INDONESIAN,
+    /** Snowball Irish. */
+    SNOWBALL_IRISH,
+    /** Snowball Italian. */
+    SNOWBALL_ITALIAN,
+    /** Snowball Norwegian. */
+    SNOWBALL_NORWEGIAN,
+    /** The Snowball Porter program. */
+    SNOWBALL_PORTER,
+    /** Snowball Portuguese. */
+    SNOWBALL_PORTUGUESE,
+    /** Snowball Romanian. */
+    SNOWBALL_ROMANIAN,
+    /** Snowball Russian. */
+    SNOWBALL_RUSSIAN,
+    /** Snowball Swedish. */
+    SNOWBALL_SWEDISH,
+    /** Snowball Turkish. */
+    SNOWBALL_TURKISH,
     /** English minimal stemmer. */
     LIGHT_ENGLISH,
     /** German light stemmer. */
@@ -68,7 +110,37 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     /** French light stemmer. */
     LIGHT_FRENCH,
     /** Spanish light stemmer. */
-    LIGHT_SPANISH
+    LIGHT_SPANISH,
+    /** Finnish light stemmer. */
+    LIGHT_FINNISH,
+    /** Hungarian light stemmer. */
+    LIGHT_HUNGARIAN,
+    /** Italian light stemmer. */
+    LIGHT_ITALIAN,
+    /** Norwegian light stemmer, Bokmal variety. */
+    LIGHT_NORWEGIAN_BOKMAAL,
+    /** Norwegian light stemmer, Nynorsk variety. */
+    LIGHT_NORWEGIAN_NYNORSK,
+    /** Portuguese light stemmer. */
+    LIGHT_PORTUGUESE,
+    /** Russian light stemmer. */
+    LIGHT_RUSSIAN,
+    /** Swedish light stemmer. */
+    LIGHT_SWEDISH,
+    /** German minimal stemmer. */
+    MINIMAL_GERMAN,
+    /** French minimal stemmer. */
+    MINIMAL_FRENCH,
+    /** Norwegian minimal stemmer, Bokmal variety. */
+    MINIMAL_NORWEGIAN_BOKMAAL,
+    /** Norwegian minimal stemmer, Nynorsk variety. */
+    MINIMAL_NORWEGIAN_NYNORSK,
+    /** Spanish minimal stemmer. */
+    MINIMAL_SPANISH,
+    /** Swedish minimal stemmer. */
+    MINIMAL_SWEDISH,
+    /** Hunspell dictionary stemmer (needs OPENNLP_HUNSPELL_AFF/DIC). */
+    HUNSPELL
   }
 
   /** How much each term vector records. */
@@ -77,6 +149,14 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     FULL,
     /** Frequency only. */
     SCORING_ONLY
+  }
+
+  /** Which layer supplies term identity. */
+  public enum TermVectorSource {
+    /** Group by normalized token text; the rungs define identity. */
+    TOKENS,
+    /** Group by stem; the stem alone defines identity, rungs ignored. */
+    STEMS
   }
 
   /** One rung of the aligned normalizer chain. */
@@ -92,7 +172,17 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     /** Normalizes Unicode digits to ASCII digits. */
     DIGITS,
     /** Unicode full case folding. */
-    FULL_CASE_FOLD
+    FULL_CASE_FOLD,
+    /** Collapses ellipsis characters to "...". */
+    ELLIPSIS,
+    /** Normalizes Unicode bullets to '*'. */
+    BULLETS,
+    /** Converts emoji to emoticon text. */
+    EMOJI_TO_EMOTICON,
+    /** Converts emoticons to emoji. */
+    EMOTICON_TO_EMOJI,
+    /** Expands German umlauts and sharp-s to ASCII digraphs. */
+    GERMAN_UMLAUT
   }
 
   /** Which annotation layer is embedded. */
@@ -108,9 +198,12 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
    *
    * @param mode recording mode
    * @param rungs normalizer rungs for term identity; empty selects the server
-   *              default ({@link #DEFAULT_RUNGS})
+   *              default ({@link #DEFAULT_RUNGS}); ignored when
+   *              {@code source} is {@link TermVectorSource#STEMS}
+   * @param source term identity source
    */
-  public record TermVectorSpec(TermVectorMode mode, List<NormalizerRung> rungs) {
+  public record TermVectorSpec(TermVectorMode mode, List<NormalizerRung> rungs,
+                               TermVectorSource source) {
 
     /** Default rungs: strip invisible, collapse whitespace, full case fold. */
     public static final List<NormalizerRung> DEFAULT_RUNGS =
@@ -124,10 +217,22 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
      *
      * @param mode recording mode
      * @param rungs requested rungs, possibly empty
+     * @param source term identity source
      */
     public TermVectorSpec {
       rungs = rungs == null || rungs.isEmpty()
           ? DEFAULT_RUNGS : rungs.stream().distinct().sorted().toList();
+      source = source == null ? TermVectorSource.TOKENS : source;
+    }
+
+    /**
+     * Token-source convenience: same as {@code TermVectorSpec(mode, rungs, TOKENS)}.
+     *
+     * @param mode recording mode
+     * @param rungs requested rungs, possibly empty
+     */
+    public TermVectorSpec(TermVectorMode mode, List<NormalizerRung> rungs) {
+      this(mode, rungs, TermVectorSource.TOKENS);
     }
   }
 
@@ -138,7 +243,7 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
    * @return the default options, never {@code null}
    */
   public static PipelineOptions defaults() {
-    return new PipelineOptions("en", Tokenizer.WHITESPACE, true, false, false,
+    return new PipelineOptions("en", Tokenizer.WHITESPACE, true, false, false, false,
         Stemmer.NONE, null, null);
   }
 }

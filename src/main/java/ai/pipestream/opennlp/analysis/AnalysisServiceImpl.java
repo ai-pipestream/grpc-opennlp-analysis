@@ -18,7 +18,9 @@
 package ai.pipestream.opennlp.analysis;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +49,7 @@ import io.grpc.stub.StreamObserver;
 import opennlp.tools.document.Annotation;
 import opennlp.tools.document.Document;
 import opennlp.tools.document.Layers;
+import opennlp.tools.lemmatizer.DictionaryLemmatizer;
 import opennlp.tools.stemmer.StemmerAnnotator;
 import opennlp.tools.termvector.TermVectorAnnotator;
 
@@ -87,7 +90,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       final AnalysisPipeline pipeline =
           pipelines.computeIfAbsent(options, o -> AnalysisPipeline.create(o, environment));
       final Document document = pipeline.analyze(text);
-      observer.onNext(toResponse(document, pipeline));
+      observer.onNext(toResponse(document, pipeline, environment.lemmatizer()));
       observer.onCompleted();
     } catch (io.grpc.StatusRuntimeException e) {
       observer.onError(e);
@@ -114,6 +117,8 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
                 ? environment.embeddingsDirDescription() : "")
         .setPosTagsAvailable(environment.posModel() != null)
         .setNerAvailable(environment.nerModel() != null)
+        .setHunspellAvailable(environment.hunspellDictionary() != null)
+        .setLemmatizerAvailable(environment.lemmatizer() != null)
         .setMaxTextBytes(config.maxTextBytes())
         .addAllStemmers(java.util.Arrays.stream(AnalysisOptions.Stemmer.values())
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED
@@ -159,7 +164,8 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
    * through unchanged: the layers are already in original text coordinates —
    * that is the offset-fidelity guarantee of the contract.
    */
-  private static AnalyzeResponse toResponse(Document document, AnalysisPipeline pipeline) {
+  private static AnalyzeResponse toResponse(Document document, AnalysisPipeline pipeline,
+                                            DictionaryLemmatizer lemmatizer) {
     final AnalyzeResponse.Builder response = AnalyzeResponse.newBuilder();
     final CharSequence text = document.text();
 
@@ -188,6 +194,23 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       }
     }
 
+    // Dictionary lemmatization, service-side: the OpenNLP LemmatizerAnnotator
+    // requires the POS layer (a model dependency), so the dictionary is joined
+    // onto the tokens here instead. POS tags feed the lookup when a POS model
+    // produced them; otherwise every token looks up with the neutral empty
+    // tag. Unknown words come back as "O", the OpenNLP convention.
+    if (pipeline.options().lemmatize() && lemmatizer != null) {
+      final String[] words = new String[tokens.size()];
+      final String[] tags = new String[tokens.size()];
+      for (int i = 0; i < tokens.size(); i++) {
+        words[i] = tokens.get(i).span().getCoveredText(text).toString();
+        tags[i] = posBySpan.getOrDefault(tokens.get(i).span(), "");
+      }
+      for (String lemma : lemmatizer.lemmatize(words, tags)) {
+        response.addLemmas(lemma);
+      }
+    }
+
     for (Annotation<String> entity : document.get(Layers.ENTITIES)) {
       response.addEntities(Entity.newBuilder()
           .setSpan(span(entity.span()))
@@ -195,16 +218,42 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
           .setText(entity.span().getCoveredText(text).toString()));
     }
 
-    for (Annotation<opennlp.tools.termvector.TermVector> annotation
-        : document.get(TermVectorAnnotator.TERM_VECTORS)) {
-      final opennlp.tools.termvector.TermVector vector = annotation.value();
-      final TermVector.Builder out = TermVector.newBuilder()
-          .setTerm(vector.term())
-          .setFrequency(vector.frequency());
-      if (vector.spans() != null) {
-        vector.spans().forEach(occurrence -> out.addOccurrences(span(occurrence)));
+    final PipelineOptions.TermVectorSpec termVectorSpec = pipeline.options().termVectors();
+    if (termVectorSpec != null
+        && termVectorSpec.source() == PipelineOptions.TermVectorSource.STEMS) {
+      // The stem IS the term identity: group every token under its stem, in
+      // first-occurrence order, carrying the token spans in original text
+      // coordinates. The pipeline guarantees the stems layer exists here
+      // (the mapper rejects STEMS without a stemmer).
+      final boolean full = termVectorSpec.mode() == PipelineOptions.TermVectorMode.FULL;
+      final Map<String, List<opennlp.tools.util.Span>> spansByStem = new LinkedHashMap<>();
+      for (Annotation<String> token : tokens) {
+        final String stem = stemBySpan.get(token.span());
+        if (stem != null) {
+          spansByStem.computeIfAbsent(stem, s -> new ArrayList<>()).add(token.span());
+        }
       }
-      response.addTermVectors(out);
+      spansByStem.forEach((stem, spans) -> {
+        final TermVector.Builder out = TermVector.newBuilder()
+            .setTerm(stem)
+            .setFrequency(spans.size());
+        if (full) {
+          spans.forEach(occurrence -> out.addOccurrences(span(occurrence)));
+        }
+        response.addTermVectors(out);
+      });
+    } else {
+      for (Annotation<opennlp.tools.termvector.TermVector> annotation
+          : document.get(TermVectorAnnotator.TERM_VECTORS)) {
+        final opennlp.tools.termvector.TermVector vector = annotation.value();
+        final TermVector.Builder out = TermVector.newBuilder()
+            .setTerm(vector.term())
+            .setFrequency(vector.frequency());
+        if (vector.spans() != null) {
+          vector.spans().forEach(occurrence -> out.addOccurrences(span(occurrence)));
+        }
+        response.addTermVectors(out);
+      }
     }
 
     if (pipeline.embeddingLayer() != null) {
