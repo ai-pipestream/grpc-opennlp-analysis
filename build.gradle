@@ -141,3 +141,77 @@ tasks.register('bufLint', Exec) {
         exclude '**/build/**'
     })
 }
+
+// Publishing: the service jar + sources jar as ai.pipestream:grpc-opennlp-analysis.
+// Snapshots go to the ai.pipestream Forgejo registry (self-hosted side) or to
+// Central Snapshots (github.com side); releases would go through the Central
+// Portal, which validates the license/developer/scm pom metadata stamped below.
+apply plugin: 'maven-publish'
+apply plugin: 'signing'
+
+java {
+    withSourcesJar()
+}
+
+publishing {
+    repositories {
+        // Credentials come from the environment; the repos stay registered
+        // unconditionally so the task names are stable, and only the env-gated
+        // CI workflows invoke them.
+        maven {
+            name = 'forgejo'
+            url = uri('https://git.rokkon.com/api/packages/ai-pipestream/maven')
+            credentials {
+                username = providers.environmentVariable('FORGEJO_ACTOR').orElse('ci').get()
+                password = providers.environmentVariable('FORGEJO_TOKEN').orNull
+            }
+        }
+        maven {
+            name = 'central'
+            url = uri('https://central.sonatype.com/repository/maven-snapshots/')
+            credentials {
+                username = providers.environmentVariable('MAVEN_CENTRAL_USERNAME').orNull
+                password = providers.environmentVariable('MAVEN_CENTRAL_PASSWORD').orNull
+            }
+        }
+    }
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            pom {
+                name = 'grpc-opennlp-analysis'
+                description = providers.provider { project.description }
+                url = 'https://github.com/ai-pipestream/grpc-opennlp-analysis'
+                licenses {
+                    license {
+                        name = 'Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'krickert'
+                        email = 'krickert@pipestream.ai'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/ai-pipestream/grpc-opennlp-analysis.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/ai-pipestream/grpc-opennlp-analysis.git'
+                    url = 'https://github.com/ai-pipestream/grpc-opennlp-analysis'
+                }
+            }
+        }
+    }
+}
+
+// Signing is required for Central Portal releases but not for snapshot repos;
+// it activates only when a key is present, exactly like protomolt.
+signing {
+    def signingKey = System.getenv('GPG_PRIVATE_KEY')
+    def signingPassword = System.getenv('GPG_PASSPHRASE')
+    required { signingKey != null }
+    if (signingKey) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications
+    }
+}
