@@ -8,6 +8,7 @@ slf4j = "2.0.18"
 # The intent is to migrate to org.apache.opennlp 3.x as the preview features land upstream.
 opennlp = "3.x-preview-SNAPSHOT"
 protobuf-gradle = "0.10.0"
+graalvm-buildtools = "1.1.6"
 
 [libraries]
 grpc-api = { module = "io.grpc:grpc-api", version.ref = "grpc" }
@@ -34,3 +35,4 @@ slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 
 [plugins]
 protobuf = { id = "com.google.protobuf", version.ref = "protobuf-gradle" }
+graalvm-native = { id = "org.graalvm.buildtools.native", version.ref = "graalvm-buildtools" }

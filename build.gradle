@@ -1,6 +1,7 @@
 plugins {
     id 'application'
     alias(libs.plugins.protobuf)
+    alias(libs.plugins.graalvm.native)
 }
 
 description = 'gRPC NLP analysis service wrapping the experimental Apache OpenNLP 3.x preview'
@@ -105,6 +106,29 @@ protobuf {
 tasks.withType(Javadoc).configureEach {
     options.addStringOption('Xdoclint:all,-missing', '-quiet')
 }
+
+// GraalVM CE native image. Reachability metadata comes from the plugin's metadata
+// repository (grpc-netty-shaded, protobuf-java, ...) plus the project's own
+// src/main/resources/META-INF/native-image entries.
+// slf4j-nop (not slf4j-simple) is deliberate: netty's build-time class init would
+// otherwise capture a SimpleLogger instance into the image heap.
+// Only nativeCompile requires GraalVM (a GraalVM JDK 25 toolchain, e.g.
+// `sdk install java 25.1.3-graalce`); every other task runs on any JDK 25.
+graalvmNative {
+    binaries {
+        main {
+            // The service is an executable, not a shared library.
+            sharedLibrary = false
+            verbose = true
+            buildArgs.addAll([
+                    '--no-fallback',
+                    '--report-unsupported-elements-at-runtime',
+                    '-H:+ReportExceptionStackTraces',
+            ])
+        }
+    }
+}
+
 
 tasks.register('bufLint', Exec) {
     group = 'verification'

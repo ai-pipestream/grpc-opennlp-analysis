@@ -1,0 +1,20 @@
+{
+  "reflection": [
+    {
+      "type": "com.google.protobuf.ExtensionRegistry",
+      "methods": [
+        {
+          "name": "add",
+          "parameterTypes": [
+            "com.google.protobuf.Extension"
+          ]
+        }
+      ]
+    }
+  ],
+  "resources": [
+    { "glob": "**/*.proto" },
+    { "glob": "service-version.properties" },
+    { "glob": "META-INF/maven/ai.pipestream/opennlp-api/pom.properties" }
+  ]
+}
