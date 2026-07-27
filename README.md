@@ -88,7 +88,8 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
 | `pos_tags` | bool | `false` | Needs a server-configured POS model; otherwise a warning, no tags |
 | `ner` | bool | `false` | Needs a server-configured NER model; otherwise a warning, no entities |
 | `stemmer` | `Stemmer` | `STEMMER_NONE` | See stemmers below. One stem per token, parallel to `tokens` |
-| `term_vectors` | `TermVectorOptions` | disabled | `enabled`, `mode` (`MODE_FULL` with occurrence spans / `MODE_SCORING_ONLY` frequency only), `rungs` |
+| `lemmatize` | bool | `false` | Needs a server-configured lemmatizer dictionary; otherwise a warning, no lemmas |
+| `term_vectors` | `TermVectorOptions` | disabled | `enabled`, `mode` (`MODE_FULL` with occurrence spans / `MODE_SCORING_ONLY` frequency only), `rungs`, `source` (`SOURCE_TOKENS` / `SOURCE_STEMS`) |
 | `embeddings` | `EmbeddingOptions` | disabled | `source`: `SOURCE_SENTENCES` (chunk embeddings) or `SOURCE_TOKENS` |
 
 `AnalyzeResponse`:
@@ -96,6 +97,8 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
 - `sentences` — sentence spans in original text coordinates
 - `tokens` — span + covered text (+ `pos` when a POS model served the request)
 - `stems` — one stem per token, exactly parallel to `tokens`
+- `lemmas` — one lemma per token, exactly parallel to `tokens`; unknown words
+  come back as `"O"` (the OpenNLP convention)
 - `entities` — span + type + covered text
 - `term_vectors` — `term`, `frequency`, and (in `MODE_FULL`) every occurrence
   span in **original text coordinates**
@@ -105,24 +108,81 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
   no POS/NER model configured, …). Requests never fail just because an
   optional model-backed feature is unavailable.
 
-Errors: empty text or text over the size cap → `INVALID_ARGUMENT`; analysis
-failures → `INTERNAL` with a clean message. No stack traces on the wire.
+Errors: empty text or text over the size cap → `INVALID_ARGUMENT`; term
+vectors with `source: SOURCE_STEMS` but no stemmer → `INVALID_ARGUMENT`;
+analysis failures → `INTERNAL` with a clean message. No stack traces on the
+wire.
 
 ### Stemmers
 
-All model-free and algorithmic: `STEMMER_PORTER`, `STEMMER_SNOWBALL_ENGLISH`,
-`STEMMER_SNOWBALL_GERMAN`, `STEMMER_SNOWBALL_FRENCH`,
-`STEMMER_SNOWBALL_SPANISH`, `STEMMER_LIGHT_ENGLISH`, `STEMMER_LIGHT_GERMAN`,
-`STEMMER_LIGHT_FRENCH`, `STEMMER_LIGHT_SPANISH`. Stemmers are wrapped in
-OpenNLP's `SharingStemmer`, so the shared cached pipelines stay thread-safe.
+41 algorithmic stemmers plus Hunspell — all model-free:
+
+- **Classic Porter**: `STEMMER_PORTER`.
+- **Snowball** (`STEMMER_SNOWBALL_*`): `ENGLISH` (Porter2), `GERMAN`,
+  `FRENCH`, `SPANISH`, `ARABIC`, `CATALAN`, `DANISH`, `DUTCH`, `FINNISH`,
+  `GREEK`, `HUNGARIAN`, `INDONESIAN`, `IRISH`, `ITALIAN`, `NORWEGIAN`,
+  `PORTER` (the Snowball Porter program), `PORTUGUESE`, `ROMANIAN`, `RUSSIAN`,
+  `SWEDISH`, `TURKISH`.
+- **Light** (`STEMMER_LIGHT_*`): `ENGLISH` (English minimal), `GERMAN`,
+  `FRENCH`, `SPANISH`, `FINNISH`, `HUNGARIAN`, `ITALIAN`,
+  `NORWEGIAN_BOKMAAL`, `NORWEGIAN_NYNORSK`, `PORTUGUESE`, `RUSSIAN`,
+  `SWEDISH`.
+- **Minimal** (`STEMMER_MINIMAL_*`): `GERMAN`, `FRENCH`,
+  `NORWEGIAN_BOKMAAL`, `NORWEGIAN_NYNORSK`, `SPANISH`, `SWEDISH`.
+- **Hunspell**: `STEMMER_HUNSPELL`, driven by a server-configured dictionary
+  (`OPENNLP_HUNSPELL_AFF` + `OPENNLP_HUNSPELL_DIC`); unconfigured → warning.
+
+Stemmers operate on the raw token surface form: they do **not** lowercase or
+fold (`Running` stems to `Run`, not `run`). Fold client-side or use
+token-sourced term vectors with `FULL_CASE_FOLD` when case-insensitive
+identity is needed. Stemmers are wrapped in OpenNLP's `SharingStemmer`, so
+the shared cached pipelines stay thread-safe.
+
+### Stemmed term vectors (the BM25 feature)
+
+`TermVectorOptions.source` decides what a term **is**:
+
+- `SOURCE_TOKENS` (default): terms are token surface forms after the aligned
+  normalizer chain; the rungs define identity (`Groß`/`GROSS` collapse under
+  `FULL_CASE_FOLD`).
+- `SOURCE_STEMS`: **the stem is the identity** — every occurrence of
+  `running`/`runs`/`run` groups under `run`, with the occurrence spans of
+  every token carrying that stem, in original-text coordinates. The rungs are
+  ignored in this mode. This is the shape turbovec's BM25 indexing consumes:
+  document frequencies and postings over stems, highlightable through the
+  original spans. Requires a stemmer (`STEMMER_NONE` → `INVALID_ARGUMENT`).
+
+```bash
+grpcurl -plaintext -d '{
+  "text": "running runs run",
+  "options": {
+    "stemmer": "STEMMER_PORTER",
+    "termVectors": {"enabled": true, "source": "SOURCE_STEMS", "mode": "MODE_FULL"}
+  }
+}' localhost:50051 ai.pipestream.opennlp.analysis.v1.AnalysisService/Analyze
+# -> "termVectors": [{"term": "run", "frequency": 3,
+#      "occurrences": [{0-7}, {8-12}, {13-16}]}]
+```
+
+### Dictionary lemmatization
+
+`lemmatize: true` joins a server-configured dictionary
+(`OPENNLP_LEMMATIZER_DICT`, lines of `word<TAB>postag<TAB>lemma`) onto the
+tokens, one lemma per token. Lookup keys are (lowercased token, POS tag);
+when no POS model produced tags, every token looks up with the neutral empty
+tag, so tag-agnostic dictionaries work. Unknown words come back as `"O"`.
+Unconfigured → warning, no lemmas.
 
 ### Normalizer rungs
 
 `rungs` on `TermVectorOptions` select the aligned normalizer chain used for
-term identity: `NORMALIZER_RUNG_STRIP_INVISIBLE`, `..._WHITESPACE`,
-`..._DASHES`, `..._QUOTES`, `..._DIGITS`, `..._FULL_CASE_FOLD`. Rungs apply in
-the OpenNLP builder's fixed order regardless of request order. When `enabled`
-is set with no rungs, the default chain is
+term identity (token-sourced vectors only): `NORMALIZER_RUNG_STRIP_INVISIBLE`,
+`..._WHITESPACE`, `..._DASHES`, `..._QUOTES`, `..._DIGITS`,
+`..._FULL_CASE_FOLD`, `..._ELLIPSIS`, `..._BULLETS`,
+`..._EMOJI_TO_EMOTICON`, `..._EMOTICON_TO_EMOJI`, `..._GERMAN_UMLAUT`
+(umlaut/sharp-s expansion: `ä`→`ae`, `ß`→`ss`). Rungs apply in the OpenNLP
+builder's fixed order regardless of request order. When `enabled` is set
+with no rungs, the default chain is
 `STRIP_INVISIBLE + WHITESPACE + FULL_CASE_FOLD` — the chain BM25 consumers
 usually want. Every rung is offset-aware: normalization never breaks
 original-text offsets.
@@ -130,8 +190,10 @@ original-text offsets.
 ### `GetCapabilities(GetCapabilitiesRequest) → GetCapabilitiesResponse`
 
 Reports what this server instance can actually serve: OpenNLP and service
-versions, `embeddings_enabled` + model dir, POS/NER availability, the max text
-size, and the supported stemmer/rung/tokenizer option names.
+versions, `embeddings_enabled` + model dir, POS/NER availability,
+`hunspell_available` and `lemmatizer_available` (dictionary configured or
+not), the max text size, and the supported stemmer/rung/tokenizer option
+names.
 
 ## Model-free by default
 
@@ -152,6 +214,11 @@ configuration and are never downloaded at request time:
 - **NER** — set `OPENNLP_NER_MODEL` to a `.bin` token name finder model file.
   The name finder is serialized behind a lock (it clears adaptive data per
   call), so shared pipelines stay safe.
+- **Hunspell stemming** — set `OPENNLP_HUNSPELL_AFF` and
+  `OPENNLP_HUNSPELL_DIC` to a Hunspell dictionary pair, then select
+  `STEMMER_HUNSPELL` per request.
+- **Dictionary lemmatization** — set `OPENNLP_LEMMATIZER_DICT` to a
+  `word<TAB>postag<TAB>lemma` file, then set `lemmatize: true` per request.
 
 ## Configuration
 
@@ -162,6 +229,9 @@ configuration and are never downloaded at request time:
 | Embedding model dir | `OPENNLP_EMBEDDINGS_DIR` | `opennlp.embeddings.dir` | unset (disabled) |
 | POS model file | `OPENNLP_POS_MODEL` | `opennlp.pos.model` | unset (unavailable) |
 | NER model file | `OPENNLP_NER_MODEL` | `opennlp.ner.model` | unset (unavailable) |
+| Hunspell .aff file | `OPENNLP_HUNSPELL_AFF` | `opennlp.hunspell.aff` | unset (unavailable) |
+| Hunspell .dic file | `OPENNLP_HUNSPELL_DIC` | `opennlp.hunspell.dic` | unset (unavailable) |
+| Lemmatizer dictionary | `OPENNLP_LEMMATIZER_DICT` | `opennlp.lemmatizer.dict` | unset (unavailable) |
 
 The server exposes the gRPC **health service** (`""` and the fully-qualified
 service name are `SERVING`) and **server reflection**. Shutdown is graceful:
