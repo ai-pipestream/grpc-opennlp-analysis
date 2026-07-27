@@ -243,11 +243,39 @@ was configured during verification; the code paths are plain Java but
 unproven in the image), and native-image emits 21 warnings (mostly netty's
 `sun.misc.Unsafe` usage — harmless today, worth watching as JDKs evolve).
 
+## Container
+
+The multi-stage [Dockerfile](Dockerfile) builds the native binary inside a
+GraalVM CE 25 image and packs it onto `debian:trixie-slim` — no JRE in the
+final image, non-root user (uid 10001), port 50051 exposed.
+
+```bash
+docker build -t grpc-opennlp-analysis .
+docker run --rm -p 50051:50051 grpc-opennlp-analysis
+
+# With embeddings (mount the Model2Vec directory):
+docker run --rm -p 50051:50051 \
+  -e OPENNLP_EMBEDDINGS_DIR=/models/model \
+  -v /path/to/model:/models/model:ro \
+  grpc-opennlp-analysis
+```
+
+All configuration env vars (`PORT`, `OPENNLP_EMBEDDINGS_DIR`,
+`OPENNLP_POS_MODEL`, `OPENNLP_NER_MODEL`, `OPENNLP_MAX_TEXT_BYTES`) work the
+same inside the container. Model paths must refer to mounted volumes.
+
+The final image is ~195 MB (debian base plus the 50 MB binary; the GraalVM
+builder stage is discarded). Verified locally: the container answers
+`GetCapabilities` and the aligned term-vector `Analyze` case.
+
 ## Roadmap
 
-- ~~Phase 2a — GraalVM CE native image~~: done, see above. Remaining phase 2:
-  publishing and CI workflows. The primary consumer is **turbovec
-  distributed search**.
+- ~~Phase 2a — GraalVM CE native image~~: done, see above.
+- ~~Phase 2b — publishing and CI~~: snapshot jars publish to Central Snapshots
+  (github.com) and the ai.pipestream Forgejo registry (self-hosted) via
+  Gradle; the native binary is a CI artifact; the Dockerfile is local/manual
+  for now (a registry push can come later). The primary consumer is
+  **turbovec distributed search**.
 - Migration from `ai.pipestream:opennlp-*` snapshots to official
   `org.apache.opennlp` 3.x artifacts as the preview features land upstream.
 - Optional statistical sentence detection / tokenizer models via explicit
