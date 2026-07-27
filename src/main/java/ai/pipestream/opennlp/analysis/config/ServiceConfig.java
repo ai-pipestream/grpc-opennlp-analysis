@@ -1,0 +1,85 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package ai.pipestream.opennlp.analysis.config;
+
+import java.nio.file.Path;
+
+/**
+ * Server configuration, resolved from process arguments, environment variables,
+ * and system properties.
+ *
+ * <p>Precedence: system property first (explicit override), then the environment
+ * variable, then the default. The port is taken from the first command line
+ * argument when present.</p>
+ *
+ * @param port the gRPC listen port
+ * @param maxTextBytes maximum accepted request text size in bytes
+ * @param embeddingsDir directory of the static (Model2Vec) embedding model, or
+ *                      {@code null} to run with embeddings disabled
+ * @param posModelPath path to a POS model file, or {@code null} when POS tagging
+ *                     is not offered
+ * @param nerModelPath path to a token name finder model file, or {@code null}
+ *                     when NER is not offered
+ */
+public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
+                            Path posModelPath, Path nerModelPath) {
+
+  /** Default gRPC listen port. */
+  public static final int DEFAULT_PORT = 50051;
+
+  /** Default request text size cap: 1 MiB. */
+  public static final int DEFAULT_MAX_TEXT_BYTES = 1024 * 1024;
+
+  /**
+   * Resolves the configuration from the process environment.
+   *
+   * @param args command line arguments; {@code args[0]} is the port when present
+   * @return the resolved configuration, never {@code null}
+   */
+  public static ServiceConfig fromEnvironment(String[] args) {
+    final int port;
+    if (args != null && args.length > 0 && !args[0].isBlank()) {
+      port = Integer.parseInt(args[0]);
+    } else {
+      port = Integer.parseInt(setting("PORT", "port", Integer.toString(DEFAULT_PORT)));
+    }
+    final int maxTextBytes = Integer.parseInt(setting(
+        "OPENNLP_MAX_TEXT_BYTES", "opennlp.max.text.bytes",
+        Integer.toString(DEFAULT_MAX_TEXT_BYTES)));
+    return new ServiceConfig(port, maxTextBytes,
+        path(setting("OPENNLP_EMBEDDINGS_DIR", "opennlp.embeddings.dir", null)),
+        path(setting("OPENNLP_POS_MODEL", "opennlp.pos.model", null)),
+        path(setting("OPENNLP_NER_MODEL", "opennlp.ner.model", null)));
+  }
+
+  private static String setting(String envVar, String property, String fallback) {
+    final String fromProperty = System.getProperty(property);
+    if (fromProperty != null && !fromProperty.isBlank()) {
+      return fromProperty;
+    }
+    final String fromEnv = System.getenv(envVar);
+    if (fromEnv != null && !fromEnv.isBlank()) {
+      return fromEnv;
+    }
+    return fallback;
+  }
+
+  private static Path path(String value) {
+    return value == null ? null : Path.of(value);
+  }
+}

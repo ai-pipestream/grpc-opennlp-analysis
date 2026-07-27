@@ -64,6 +64,7 @@ java {
 // JDK 25 is a hard requirement.
 tasks.withType(JavaCompile).configureEach {
     options.release = 25
+    options.compilerArgs += ["-Xlint:deprecation"]
 }
 
 tasks.withType(Test).configureEach {
@@ -73,6 +74,13 @@ tasks.withType(Test).configureEach {
 
 application {
     mainClass = 'ai.pipestream.opennlp.analysis.AnalysisServer'
+}
+
+// Bake the service version into a classpath resource for GetCapabilities.
+processResources {
+    filesMatching('service-version.properties') {
+        expand('version': project.version)
+    }
 }
 
 protobuf {
