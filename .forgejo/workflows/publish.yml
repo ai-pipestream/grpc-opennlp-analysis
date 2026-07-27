@@ -1,0 +1,35 @@
+name: publish
+
+# The Forgejo side of the dual-registry model: on every push to main the
+# snapshot jar goes to the ai.pipestream Forgejo registry. The github.com
+# twin lives in .github/workflows/publish.yml.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # The registry is on the private network: this runs only on the Forgejo
+    # instance's self-hosted runners, and skips cleanly on github.com.
+    if: ${{ github.server_url != 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Publish snapshot to the Forgejo registry
+        env:
+          FORGEJO_ACTOR: ${{ github.actor }}
+          FORGEJO_TOKEN: ${{ secrets.CICD_TOKEN }}
+        run: ./gradlew publishMavenJavaPublicationToForgejoRepository --no-daemon

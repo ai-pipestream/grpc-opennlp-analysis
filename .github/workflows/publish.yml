@@ -1,0 +1,62 @@
+name: publish
+
+# The github.com side of the dual-registry model: on every push to main the
+# snapshot jar goes to Central Snapshots, and the GraalVM native binary is
+# built and uploaded as a workflow artifact. The Forgejo-registry twin lives
+# in .forgejo/workflows/publish.yml and runs on the self-hosted instance.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish-central:
+    # The github.com twin of the dual-registry model; skips on the Forgejo instance.
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Publish snapshot to Central Snapshots
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: ./gradlew publishMavenJavaPublicationToCentralRepository --no-daemon
+
+  native:
+    # linux/amd64 only: native-image does not cross-compile; arm64 would need
+    # an arm runner.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GraalVM CE is the build JDK: it builds the JVM artifacts like any
+      # JDK 25 and provides native-image. With this the only JDK on the
+      # runner, the toolchain picks it without further pinning.
+      - name: Set up GraalVM
+        uses: actions/setup-java@v4
+        with:
+          distribution: graalvm
+          java-version: '25'
+          cache: gradle
+
+      - name: Build the native image
+        run: ./gradlew nativeCompile --no-daemon
+
+      - name: Upload the native binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: grpc-opennlp-analysis-linux-amd64
+          path: build/native/nativeCompile/grpc-opennlp-analysis
+          retention-days: 30
