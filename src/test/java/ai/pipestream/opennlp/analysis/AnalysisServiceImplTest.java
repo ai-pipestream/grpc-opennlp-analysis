@@ -47,7 +47,7 @@ import io.grpc.Server;
 class AnalysisServiceImplTest {
 
   private static final ServiceConfig CONFIG =
-      new ServiceConfig(0, 1024 * 1024, null, null, null);
+      new ServiceConfig(0, 1024 * 1024, null, null, null, null, null, null);
 
   private String serverName;
   private Server server;
@@ -137,7 +137,7 @@ class AnalysisServiceImplTest {
   void oversizedTextIsRejected() {
     final AnalysisServiceImpl tiny =
         new AnalysisServiceImpl(PipelineEnvironment.empty(),
-            new ServiceConfig(0, 16, null, null, null));
+            new ServiceConfig(0, 16, null, null, null, null, null, null));
     final String name = InProcessServerBuilder.generateName();
     Server tinyServer = null;
     ManagedChannel tinyChannel = null;
@@ -173,6 +173,8 @@ class AnalysisServiceImplTest {
         .setOptions(AnalysisOptions.newBuilder()
             .setPosTags(true)
             .setNer(true)
+            .setLemmatize(true)
+            .setStemmer(AnalysisOptions.Stemmer.STEMMER_HUNSPELL)
             .setEmbeddings(ai.pipestream.opennlp.analysis.v1.EmbeddingOptions.newBuilder()
                 .setSource(ai.pipestream.opennlp.analysis.v1.EmbeddingOptions.Source
                     .SOURCE_SENTENCES)))
@@ -181,9 +183,13 @@ class AnalysisServiceImplTest {
     assertThat(response.getTokensCount()).isEqualTo(2);
     assertThat(response.getEntitiesCount()).isZero();
     assertThat(response.getEmbeddingsCount()).isZero();
+    assertThat(response.getLemmasCount()).isZero();
+    assertThat(response.getStemsCount()).isZero();
     assertThat(response.getWarningsList())
         .anySatisfy(w -> assertThat(w).contains("POS"))
         .anySatisfy(w -> assertThat(w).contains("NER"))
+        .anySatisfy(w -> assertThat(w).contains("Hunspell"))
+        .anySatisfy(w -> assertThat(w).contains("lemmatizer"))
         .anySatisfy(w -> assertThat(w).contains("embedding"));
   }
 
@@ -214,11 +220,18 @@ class AnalysisServiceImplTest {
     assertThat(capabilities.getEmbeddingsModelDir()).isEmpty();
     assertThat(capabilities.getPosTagsAvailable()).isFalse();
     assertThat(capabilities.getNerAvailable()).isFalse();
+    assertThat(capabilities.getHunspellAvailable()).isFalse();
+    assertThat(capabilities.getLemmatizerAvailable()).isFalse();
     assertThat(capabilities.getMaxTextBytes()).isEqualTo(1024 * 1024);
     assertThat(capabilities.getStemmersList())
-        .contains("STEMMER_PORTER", "STEMMER_LIGHT_GERMAN");
+        .contains("STEMMER_PORTER", "STEMMER_LIGHT_GERMAN",
+            "STEMMER_SNOWBALL_TURKISH", "STEMMER_MINIMAL_SWEDISH",
+            "STEMMER_LIGHT_NORWEGIAN_NYNORSK", "STEMMER_HUNSPELL")
+        .doesNotContain("STEMMER_UNSPECIFIED");
     assertThat(capabilities.getNormalizerRungsList())
-        .contains("NORMALIZER_RUNG_FULL_CASE_FOLD");
+        .contains("NORMALIZER_RUNG_FULL_CASE_FOLD", "NORMALIZER_RUNG_GERMAN_UMLAUT",
+            "NORMALIZER_RUNG_ELLIPSIS", "NORMALIZER_RUNG_BULLETS",
+            "NORMALIZER_RUNG_EMOJI_TO_EMOTICON", "NORMALIZER_RUNG_EMOTICON_TO_EMOJI");
     assertThat(capabilities.getTokenizersList())
         .containsExactlyInAnyOrder("TOKENIZER_WHITESPACE", "TOKENIZER_SIMPLE");
   }

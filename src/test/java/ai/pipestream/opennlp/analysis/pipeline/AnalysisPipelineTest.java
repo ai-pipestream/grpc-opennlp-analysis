@@ -46,7 +46,7 @@ class AnalysisPipelineTest {
   @Test
   void fullTermVectorsKeepOriginalOffsetsThroughCaseFolding() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
             List.of(PipelineOptions.NormalizerRung.WHITESPACE,
@@ -74,7 +74,7 @@ class AnalysisPipelineTest {
   @Test
   void scoringOnlyRecordsFrequenciesWithoutSpans() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.SCORING_ONLY,
             List.of(PipelineOptions.NormalizerRung.WHITESPACE,
@@ -94,7 +94,7 @@ class AnalysisPipelineTest {
   @Test
   void defaultRungsApplyWhenNoneAreRequested() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
             List.of()),
@@ -113,7 +113,7 @@ class AnalysisPipelineTest {
   @Test
   void simpleTokenizerSplitsPunctuationIntoOwnTokens() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.SIMPLE, false, false, false,
+        PipelineOptions.Tokenizer.SIMPLE, false, false, false, false,
         PipelineOptions.Stemmer.NONE, null, null);
 
     final Document document = create(options).analyze("Hello, world!");
@@ -127,7 +127,7 @@ class AnalysisPipelineTest {
   void newlineSentenceDetectionProducesExactSpans() {
     final String text = "One two.\nThree four.";
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, true, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, true, false, false, false,
         PipelineOptions.Stemmer.NONE, null, null);
 
     final Document document = create(options).analyze(text);
@@ -142,7 +142,7 @@ class AnalysisPipelineTest {
   @Test
   void porterStemsAreParallelToTokens() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.PORTER, null, null);
 
     final Document document = create(options).analyze("running runs");
@@ -155,7 +155,7 @@ class AnalysisPipelineTest {
   @Test
   void lightGermanStemmerIsModelFree() {
     final PipelineOptions options = new PipelineOptions("de",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.LIGHT_GERMAN, null, null);
 
     final Document document = create(options).analyze("Häuser Hause");
@@ -169,7 +169,7 @@ class AnalysisPipelineTest {
   @Test
   void posRequestWithoutModelWarnsAndStillAnalyzes() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, true, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, true, false, false,
         PipelineOptions.Stemmer.NONE, null, null);
 
     final AnalysisPipeline pipeline = create(options);
@@ -181,7 +181,7 @@ class AnalysisPipelineTest {
   @Test
   void nerRequestWithoutModelWarnsAndStillAnalyzes() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, true,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, true, false,
         PipelineOptions.Stemmer.NONE, null, null);
 
     final AnalysisPipeline pipeline = create(options);
@@ -193,7 +193,7 @@ class AnalysisPipelineTest {
   @Test
   void embeddingRequestWithoutModelWarnsAndStillAnalyzes() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, true, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, true, false, false, false,
         PipelineOptions.Stemmer.NONE, null, PipelineOptions.EmbeddingSource.SENTENCES);
 
     final AnalysisPipeline pipeline = create(options);
@@ -206,7 +206,7 @@ class AnalysisPipelineTest {
   @Test
   void sentenceEmbeddingsForceSentenceDetectionOn() {
     final PipelineOptions options = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, false, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE, null, PipelineOptions.EmbeddingSource.SENTENCES);
 
     final AnalysisPipeline pipeline = create(options);
@@ -219,7 +219,7 @@ class AnalysisPipelineTest {
   @Test
   void equalOptionSetsProduceCacheableKeys() {
     final PipelineOptions a = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, true, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, true, false, false, false,
         PipelineOptions.Stemmer.PORTER,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
             List.of(PipelineOptions.NormalizerRung.WHITESPACE,
@@ -227,7 +227,7 @@ class AnalysisPipelineTest {
         null);
     // Same rungs in a different order with a duplicate must canonicalize equal.
     final PipelineOptions b = new PipelineOptions("en",
-        PipelineOptions.Tokenizer.WHITESPACE, true, false, false,
+        PipelineOptions.Tokenizer.WHITESPACE, true, false, false, false,
         PipelineOptions.Stemmer.PORTER,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
             List.of(PipelineOptions.NormalizerRung.FULL_CASE_FOLD,

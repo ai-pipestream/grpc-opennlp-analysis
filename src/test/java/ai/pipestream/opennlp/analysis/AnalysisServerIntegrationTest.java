@@ -56,7 +56,7 @@ class AnalysisServerIntegrationTest {
 
   @BeforeAll
   static void setUp() throws Exception {
-    final ServiceConfig config = new ServiceConfig(0, 1024 * 1024, null, null, null);
+    final ServiceConfig config = new ServiceConfig(0, 1024 * 1024, null, null, null, null, null, null);
     final HealthStatusManager health = new HealthStatusManager();
     server = NettyServerBuilder.forPort(0)
         .addService(new AnalysisServiceImpl(PipelineEnvironment.load(config), config))
