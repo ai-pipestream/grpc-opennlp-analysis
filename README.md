@@ -189,11 +189,64 @@ option-set, and maps `Document` layers onto the proto. Tests run both
 in-process (`InProcessServerBuilder`) and against a real Netty server on a
 random loopback port.
 
+## Native image (GraalVM CE)
+
+The service builds as a GraalVM native image — sub-25 ms startup, no JRE on
+the target machine. Building the native binary is the only task that requires
+a GraalVM JDK 25 (e.g. `sdk install java 25.1.3-graalce`); every other build
+and test task runs on any JDK 25 via Gradle toolchains.
+
+```bash
+# Pin the toolchain to the GraalVM install: the toolchain spec is deliberately
+# vendor-neutral ("25"), and a temurin 25 cannot run native-image. Restricting
+# detection to the graalce installation makes the pick deterministic.
+JAVA_HOME=$HOME/.sdkman/candidates/java/25.1.3-graalce ./gradlew nativeCompile \
+  -Porg.gradle.java.installations.paths=$HOME/.sdkman/candidates/java/25.1.3-graalce
+
+# Binary:
+./build/native/nativeCompile/grpc-opennlp-analysis   # PORT=50051 or first arg
+```
+
+Measured on the development machine (GraalVM CE 25.1.3, native-image finishes
+in ~18 s):
+
+| Characteristic | Value |
+|---|---|
+| Binary size | 49.8 MiB (single static executable) |
+| Cold start to port-accept | ~22 ms |
+| RSS at startup | ~33 MB |
+| RSS after 300 RPCs | ~124 MB (netty pooled buffers grow under load) |
+
+Verified natively (via grpcurl against the running binary): server reflection
+(`grpcurl list`), `GetCapabilities`, the full `Analyze` surface (sentence
+detection, both tokenizers, porter/snowball/light stemmers, FULL and
+SCORING_ONLY term vectors with the aligned normalizer chain — the
+`"Groß  groß  GROSS"` case returns one term `gross` with occurrences at
+`[0,4) [6,10) [12,17)`), unavailable-feature warnings, `INVALID_ARGUMENT`
+validation, and the health service.
+
+Native-specific configuration, all in `build.gradle` + one metadata file:
+
+- `org.graalvm.buildtools.native` 1.1.6 with `--no-fallback`,
+  `--report-unsupported-elements-at-runtime`, `-H:+ReportExceptionStackTraces`.
+  The plugin's metadata repository covers grpc-netty-shaded and protobuf-java.
+- `src/main/resources/META-INF/native-image/ai.pipestream/grpc-opennlp-analysis/reachability-metadata.json`
+  adds: `ExtensionRegistry.add(Extension)` reflection (protobuf descriptor
+  init), `**/*.proto` resources, and the two properties files the service
+  reads from the classpath (`service-version.properties`, opennlp-api's
+  `pom.properties` for the reported version).
+- `slf4j-nop` (not slf4j-simple): netty's build-time class initialization
+  would otherwise capture a `SimpleLogger` into the image heap.
+
+Honest limitations: embeddings/POS/NER were not exercised natively (no model
+was configured during verification; the code paths are plain Java but
+unproven in the image), and native-image emits 21 warnings (mostly netty's
+`sun.misc.Unsafe` usage — harmless today, worth watching as JDKs evolve).
+
 ## Roadmap
 
-- **Phase 2 — GraalVM CE native image** (planned, not yet wired): the build is
-  structured for it — single module, `slf4j-nop`, no runtime model downloads,
-  static-embedding backend is pure Java. The primary consumer is **turbovec
+- ~~Phase 2a — GraalVM CE native image~~: done, see above. Remaining phase 2:
+  publishing and CI workflows. The primary consumer is **turbovec
   distributed search**.
 - Migration from `ai.pipestream:opennlp-*` snapshots to official
   `org.apache.opennlp` 3.x artifacts as the preview features land upstream.
