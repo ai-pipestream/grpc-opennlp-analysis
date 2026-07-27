@@ -85,8 +85,14 @@ message AnalysisOptions {
     TOKENIZER_SIMPLE = 2;
   }
 
-  // Model-free stemmers. STEMMER_UNSPECIFIED behaves as STEMMER_NONE. All
-  // stemmers are algorithmic and need no language model.
+  // Model-free stemmers. STEMMER_UNSPECIFIED behaves as STEMMER_NONE. Every
+  // stemmer except STEMMER_HUNSPELL is algorithmic and needs no language model
+  // or dictionary. STEMMER_HUNSPELL needs a server-configured Hunspell
+  // dictionary (OPENNLP_HUNSPELL_AFF + OPENNLP_HUNSPELL_DIC).
+  //
+  // Stemmers operate on the token surface form as-is: they do not lowercase
+  // and they do not fold case or accents. Fold first (normalizer rungs with
+  // term_vectors, or client-side) if case-insensitive stems are needed.
   enum Stemmer {
     // Unused zero value; behaves as STEMMER_NONE.
     STEMMER_UNSPECIFIED = 0;
@@ -120,6 +126,106 @@ message AnalysisOptions {
 
     // Spanish light stemmer.
     STEMMER_LIGHT_SPANISH = 10;
+
+    // Snowball Arabic stemmer.
+    STEMMER_SNOWBALL_ARABIC = 11;
+
+    // Snowball Catalan stemmer.
+    STEMMER_SNOWBALL_CATALAN = 12;
+
+    // Snowball Danish stemmer.
+    STEMMER_SNOWBALL_DANISH = 13;
+
+    // Snowball Dutch stemmer.
+    STEMMER_SNOWBALL_DUTCH = 14;
+
+    // Snowball Finnish stemmer.
+    STEMMER_SNOWBALL_FINNISH = 15;
+
+    // Snowball Greek stemmer.
+    STEMMER_SNOWBALL_GREEK = 16;
+
+    // Snowball Hungarian stemmer.
+    STEMMER_SNOWBALL_HUNGARIAN = 17;
+
+    // Snowball Indonesian stemmer.
+    STEMMER_SNOWBALL_INDONESIAN = 18;
+
+    // Snowball Irish stemmer.
+    STEMMER_SNOWBALL_IRISH = 19;
+
+    // Snowball Italian stemmer.
+    STEMMER_SNOWBALL_ITALIAN = 20;
+
+    // Snowball Norwegian stemmer.
+    STEMMER_SNOWBALL_NORWEGIAN = 21;
+
+    // The Snowball Porter program (the reference Porter implementation in
+    // Snowball form; subtly different from STEMMER_PORTER).
+    STEMMER_SNOWBALL_PORTER = 22;
+
+    // Snowball Portuguese stemmer.
+    STEMMER_SNOWBALL_PORTUGUESE = 23;
+
+    // Snowball Romanian stemmer.
+    STEMMER_SNOWBALL_ROMANIAN = 24;
+
+    // Snowball Russian stemmer.
+    STEMMER_SNOWBALL_RUSSIAN = 25;
+
+    // Snowball Swedish stemmer.
+    STEMMER_SNOWBALL_SWEDISH = 26;
+
+    // Snowball Turkish stemmer.
+    STEMMER_SNOWBALL_TURKISH = 27;
+
+    // German minimal stemmer (lighter than STEMMER_LIGHT_GERMAN).
+    STEMMER_MINIMAL_GERMAN = 28;
+
+    // French minimal stemmer (lighter than STEMMER_LIGHT_FRENCH).
+    STEMMER_MINIMAL_FRENCH = 29;
+
+    // Finnish light stemmer.
+    STEMMER_LIGHT_FINNISH = 30;
+
+    // Hungarian light stemmer.
+    STEMMER_LIGHT_HUNGARIAN = 31;
+
+    // Italian light stemmer.
+    STEMMER_LIGHT_ITALIAN = 32;
+
+    // Norwegian light stemmer, Bokmal variety.
+    STEMMER_LIGHT_NORWEGIAN_BOKMAAL = 33;
+
+    // Norwegian light stemmer, Nynorsk variety.
+    STEMMER_LIGHT_NORWEGIAN_NYNORSK = 34;
+
+    // Norwegian minimal stemmer, Bokmal variety.
+    STEMMER_MINIMAL_NORWEGIAN_BOKMAAL = 35;
+
+    // Norwegian minimal stemmer, Nynorsk variety.
+    STEMMER_MINIMAL_NORWEGIAN_NYNORSK = 36;
+
+    // Portuguese light stemmer.
+    STEMMER_LIGHT_PORTUGUESE = 37;
+
+    // Russian light stemmer.
+    STEMMER_LIGHT_RUSSIAN = 38;
+
+    // Spanish minimal stemmer (lighter than STEMMER_LIGHT_SPANISH).
+    STEMMER_MINIMAL_SPANISH = 39;
+
+    // Swedish light stemmer.
+    STEMMER_LIGHT_SWEDISH = 40;
+
+    // Swedish minimal stemmer (lighter than STEMMER_LIGHT_SWEDISH).
+    STEMMER_MINIMAL_SWEDISH = 41;
+
+    // Hunspell dictionary stemmer. Requires the server to be configured with
+    // a dictionary (OPENNLP_HUNSPELL_AFF and OPENNLP_HUNSPELL_DIC); when no
+    // dictionary is configured the request still succeeds, stems stays empty,
+    // and a warning is returned.
+    STEMMER_HUNSPELL = 42;
   }
 
   // ISO 639 language code, for example "en" or "de". Informational in the
@@ -159,6 +265,13 @@ message AnalysisOptions {
   // model is loaded the request still succeeds, embeddings stays empty, and a
   // warning is returned.
   EmbeddingOptions embeddings = 8;
+
+  // Whether to run dictionary lemmatization. Requires the server to be
+  // configured with a lemmatizer dictionary (OPENNLP_LEMMATIZER_DICT); when no
+  // dictionary is configured the request still succeeds, lemmas stays empty,
+  // and a warning is returned. When served, the response carries one lemma per
+  // token, parallel to tokens.
+  bool lemmatize = 9;
 }
 
 // TermVectorOptions controls per-term frequency and occurrence extraction.
@@ -206,6 +319,47 @@ message TermVectorOptions {
 
     // Unicode full case folding ("Groß" -> "gross"), locale-independent.
     NORMALIZER_RUNG_FULL_CASE_FOLD = 6;
+
+    // Collapses ellipsis characters ("…") to "...".
+    NORMALIZER_RUNG_ELLIPSIS = 7;
+
+    // Normalizes Unicode bullet characters to '*'.
+    NORMALIZER_RUNG_BULLETS = 8;
+
+    // Converts emoji to their emoticon text equivalents.
+    NORMALIZER_RUNG_EMOJI_TO_EMOTICON = 9;
+
+    // Converts emoticons to their emoji equivalents.
+    NORMALIZER_RUNG_EMOTICON_TO_EMOJI = 10;
+
+    // Expands German umlauts and sharp-s to ASCII digraphs
+    // ("ä" -> "ae", "ö" -> "oe", "ü" -> "ue", "ß" -> "ss").
+    NORMALIZER_RUNG_GERMAN_UMLAUT = 11;
+  }
+
+  // Which layer supplies term identity. This choice decides what a "term" is:
+  //
+  // TOKENS: terms are token surface forms after the aligned normalizer chain;
+  // the rungs define identity (so "Groß"/"GROSS" can collapse under
+  // FULL_CASE_FOLD). The stems layer is not involved.
+  //
+  // STEMS: the stem IS the term identity. Occurrences of different surface
+  // forms group under their common stem ("running"/"runs" -> "run"). The
+  // normalizer rungs are IGNORED for identity in this mode (stems are
+  // computed from the raw token surface forms); the term vector annotator is
+  // bypassed and grouping happens service-side, one entry per distinct stem,
+  // with the occurrence spans of every token carrying that stem, in original
+  // text coordinates. Requires a stemmer other than STEMMER_NONE; requesting
+  // STEMS without a stemmer fails with INVALID_ARGUMENT.
+  enum Source {
+    // Unused zero value; resolves to SOURCE_TOKENS.
+    SOURCE_UNSPECIFIED = 0;
+
+    // Group by normalized token text (the default; rungs define identity).
+    SOURCE_TOKENS = 1;
+
+    // Group by stem (the BM25 mode; the stem defines identity, rungs ignored).
+    SOURCE_STEMS = 2;
   }
 
   // Whether term vectors are computed.
@@ -216,8 +370,12 @@ message TermVectorOptions {
 
   // Normalizer rungs for term identity. When empty and enabled, the server
   // default applies: STRIP_INVISIBLE + WHITESPACE + FULL_CASE_FOLD, which is
-  // the chain BM25 consumers usually want.
+  // the chain BM25 consumers usually want. Ignored when source is
+  // SOURCE_STEMS: the stem alone defines identity there.
   repeated NormalizerRung rungs = 3;
+
+  // Term identity source. Defaults to SOURCE_TOKENS.
+  Source source = 4;
 }
 
 // EmbeddingOptions controls dense vector extraction. The embedding backend is
@@ -327,6 +485,14 @@ message AnalyzeResponse {
   // model loaded, no POS/NER model configured, …). The analysis itself always
   // reflects exactly what the response contains.
   repeated string warnings = 7;
+
+  // One lemma per token, exactly parallel to tokens. Empty unless lemmatize
+  // was requested AND the server has a lemmatizer dictionary configured.
+  // Lookup keys are (lowercased token, POS tag); when no POS model produced
+  // tags, every token looks up with the neutral empty tag, so tag-agnostic
+  // dictionaries work. Words missing from the dictionary come back as "O",
+  // the OpenNLP convention.
+  repeated string lemmas = 8;
 }
 
 // GetCapabilitiesRequest is empty: capabilities describe the whole server.
@@ -372,4 +538,12 @@ message GetCapabilitiesResponse {
   // Server-level warnings, for example "OPENNLP_EMBEDDINGS_DIR is not set;
   // embedding requests return a warning and no vectors".
   repeated string warnings = 11;
+
+  // Whether a Hunspell dictionary is configured and STEMMER_HUNSPELL requests
+  // are served.
+  bool hunspell_available = 12;
+
+  // Whether a lemmatizer dictionary is configured and lemmatize requests are
+  // served.
+  bool lemmatizer_available = 13;
 }
