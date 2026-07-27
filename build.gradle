@@ -1,0 +1,111 @@
+plugins {
+    id 'application'
+    alias(libs.plugins.protobuf)
+}
+
+description = 'gRPC NLP analysis service wrapping the experimental Apache OpenNLP 3.x preview'
+
+repositories {
+    mavenLocal()
+    // The experimental OpenNLP 3.x preview (ai.pipestream:opennlp-*) is the only dependency
+    // not on Maven Central. It resolves from Central's snapshot repository; the ai.pipestream
+    // Forgejo registry stays as a fallback. Both are scoped to exactly the fork: without the
+    // filter, every dependency in the build would be looked up there first.
+    maven {
+        url = 'https://central.sonatype.com/repository/maven-snapshots'
+        content {
+            includeModuleByRegex('ai\\.pipestream', 'opennlp(-.*)?')
+        }
+    }
+    maven {
+        url = 'https://git.rokkon.com/api/packages/ai-pipestream/maven'
+        content {
+            includeModuleByRegex('ai\\.pipestream', 'opennlp(-.*)?')
+        }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    implementation libs.opennlp.api
+    implementation libs.opennlp.runtime
+    implementation libs.opennlp.tools
+    implementation libs.opennlp.model.resolver
+    implementation libs.opennlp.embeddings
+    implementation libs.opennlp.dl
+
+    implementation libs.grpc.api
+    implementation libs.grpc.stub
+    implementation libs.grpc.protobuf
+    implementation libs.grpc.netty.shaded
+    // Health status service and ProtoReflectionServiceV1.
+    implementation libs.grpc.services
+    implementation libs.protobuf.java
+    implementation libs.slf4j.api
+    // grpc codegen emits @javax.annotation.Generated.
+    compileOnly 'org.apache.tomcat:annotations-api:6.0.53'
+
+    // Deliberate: no-op logging backend, the native-image-safe choice (see version catalog).
+    runtimeOnly libs.slf4j.nop
+
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testImplementation libs.assertj.core
+    testImplementation libs.grpc.inprocess
+    testRuntimeOnly libs.junit.platform.launcher
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+// JDK 25 is a hard requirement.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    maxParallelForks = Math.max(1, Runtime.runtime.availableProcessors().intdiv(2))
+}
+
+application {
+    mainClass = 'ai.pipestream.opennlp.analysis.AnalysisServer'
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:4.35.1"
+    }
+    plugins {
+        grpc {
+            artifact = 'io.grpc:protoc-gen-grpc-java:1.73.0'
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.plugins {
+                grpc {}
+            }
+        }
+    }
+}
+
+// Generated protobuf sources have no javadoc tags; keep doclint useful but quiet.
+tasks.withType(Javadoc).configureEach {
+    options.addStringOption('Xdoclint:all,-missing', '-quiet')
+}
+
+tasks.register('bufLint', Exec) {
+    group = 'verification'
+    description = 'Run buf lint (STANDARD) on the analysis proto contract'
+    workingDir = rootDir
+    commandLine 'buf', 'lint'
+    inputs.files(fileTree(rootDir) {
+        include 'buf.yaml'
+        include 'src/main/proto/**/*.proto'
+        exclude '**/build/**'
+    })
+}

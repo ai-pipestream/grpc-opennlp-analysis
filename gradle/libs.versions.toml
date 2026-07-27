@@ -1,0 +1,36 @@
+[versions]
+protobuf = "4.35.1"
+grpc = "1.73.0"
+junit = "6.1.1"
+assertj = "3.27.7"
+slf4j = "2.0.18"
+# Experimental Apache OpenNLP 3.x preview, published as ai.pipestream snapshots.
+# The intent is to migrate to org.apache.opennlp 3.x as the preview features land upstream.
+opennlp = "3.x-preview-SNAPSHOT"
+protobuf-gradle = "0.10.0"
+
+[libraries]
+grpc-api = { module = "io.grpc:grpc-api", version.ref = "grpc" }
+grpc-stub = { module = "io.grpc:grpc-stub", version.ref = "grpc" }
+grpc-netty-shaded = { module = "io.grpc:grpc-netty-shaded", version.ref = "grpc" }
+grpc-protobuf = { module = "io.grpc:grpc-protobuf", version.ref = "grpc" }
+grpc-services = { module = "io.grpc:grpc-services", version.ref = "grpc" }
+grpc-inprocess = { module = "io.grpc:grpc-inprocess", version.ref = "grpc" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+opennlp-api = { module = "ai.pipestream:opennlp-api", version.ref = "opennlp" }
+opennlp-runtime = { module = "ai.pipestream:opennlp-runtime", version.ref = "opennlp" }
+opennlp-tools = { module = "ai.pipestream:opennlp-tools", version.ref = "opennlp" }
+opennlp-model-resolver = { module = "ai.pipestream:opennlp-model-resolver", version.ref = "opennlp" }
+opennlp-embeddings = { module = "ai.pipestream:opennlp-embeddings", version.ref = "opennlp" }
+opennlp-dl = { module = "ai.pipestream:opennlp-dl", version.ref = "opennlp" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+# slf4j-nop is deliberate: it is the native-image-safe backend. netty's build-time
+# class initialization would otherwise capture a SimpleLogger into the image heap.
+slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
+
+[plugins]
+protobuf = { id = "com.google.protobuf", version.ref = "protobuf-gradle" }
