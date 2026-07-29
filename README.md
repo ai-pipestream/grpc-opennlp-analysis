@@ -1,5 +1,15 @@
 # grpc-opennlp-analysis
 
+## Repository map
+
+| Repository | Role | Depends on |
+|---|---|---|
+| [RyanCodrai/turbovec](https://github.com/RyanCodrai/turbovec) | Upstream vector index library: 4-bit TurboQuant encoding, SIMD top-k search | — |
+| [ai-pipestream/turbovec](https://github.com/ai-pipestream/turbovec), branch `turbovec-pipestream` | Patch fork carrying the two core changes distributed search needs: seeded TQ+ calibration and a seedable top-k floor (`initial_threshold`). Rebased onto upstream main | upstream `main` |
+| [ai-pipestream/turbovec-grpc](https://github.com/ai-pipestream/turbovec-grpc) | Standalone single-node gRPC server for the upstream index, with client examples in Go, Java, Python, TypeScript, and Rust | upstream `turbovec` |
+| [ai-pipestream/turbovec-search](https://github.com/ai-pipestream/turbovec-search) | Distributed hybrid search: sharded vector + BM25 nodes, coordinator with floor sharing, write-ahead log, offline resharding | fork branch `turbovec-pipestream` |
+| [ai-pipestream/grpc-opennlp-analysis](https://github.com/ai-pipestream/grpc-opennlp-analysis) (this repo) | Text-analysis sidecar: sentence/token spans, term vectors, static embeddings, served over gRPC | — |
+
 A pure-gRPC NLP analysis service wrapping Apache OpenNLP 3.x, built for
 downstream search consumers (turbovec BM25/vector indexing). One `Analyze`
 call turns raw text into tokens, sentences, stems, entities, term vectors, and
