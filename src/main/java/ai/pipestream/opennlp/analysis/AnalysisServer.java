@@ -60,6 +60,9 @@ public final class AnalysisServer {
     final HealthStatusManager health = new HealthStatusManager();
 
     final Server server = NettyServerBuilder.forPort(config.port())
+        // The transport cap must track the configured text cap: Netty's
+        // 4 MiB default would reject requests OPENNLP_MAX_TEXT_BYTES allows.
+        .maxInboundMessageSize(Math.max(4 * 1024 * 1024, config.maxTextBytes() + 1024 * 1024))
         .addService(new AnalysisServiceImpl(environment, config))
         .addService(health.getHealthService())
         .addService(ProtoReflectionServiceV1.newInstance())
