@@ -39,17 +39,40 @@ import java.nio.file.Path;
  * @param hunspellDicPath path to a Hunspell .dic file, or {@code null}
  * @param lemmatizerDictPath path to a lemmatizer dictionary file (token/lemma
  *                           pairs per line), or {@code null}
+ * @param streamWorkers number of analysis worker threads serving
+ *                      AnalyzeStream calls; {@code 0} selects the
+ *                      processor count
  */
 public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                             Path posModelPath, Path nerModelPath,
                             Path hunspellAffPath, Path hunspellDicPath,
-                            Path lemmatizerDictPath) {
+                            Path lemmatizerDictPath, int streamWorkers) {
 
   /** Default gRPC listen port. */
   public static final int DEFAULT_PORT = 50051;
 
   /** Default request text size cap: 1 MiB. */
   public static final int DEFAULT_MAX_TEXT_BYTES = 1024 * 1024;
+
+  /** Auto-sized stream worker pool (the processor count). */
+  public ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
+                       Path posModelPath, Path nerModelPath,
+                       Path hunspellAffPath, Path hunspellDicPath,
+                       Path lemmatizerDictPath) {
+    this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
+        hunspellAffPath, hunspellDicPath, lemmatizerDictPath, 0);
+  }
+
+  /**
+   * The stream worker count this configuration resolves to: the configured
+   * value, or the processor count (at least two) when unset.
+   *
+   * @return the number of worker threads AnalyzeStream should use
+   */
+  public int resolvedStreamWorkers() {
+    return streamWorkers > 0 ? streamWorkers
+        : Math.max(2, Runtime.getRuntime().availableProcessors());
+  }
 
   /**
    * Resolves the configuration from the process environment.
@@ -73,7 +96,9 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
         path(setting("OPENNLP_NER_MODEL", "opennlp.ner.model", null)),
         path(setting("OPENNLP_HUNSPELL_AFF", "opennlp.hunspell.aff", null)),
         path(setting("OPENNLP_HUNSPELL_DIC", "opennlp.hunspell.dic", null)),
-        path(setting("OPENNLP_LEMMATIZER_DICT", "opennlp.lemmatizer.dict", null)));
+        path(setting("OPENNLP_LEMMATIZER_DICT", "opennlp.lemmatizer.dict", null)),
+        Integer.parseInt(setting(
+            "OPENNLP_STREAM_WORKERS", "opennlp.stream.workers", "0")));
   }
 
   private static String setting(String envVar, String property, String fallback) {

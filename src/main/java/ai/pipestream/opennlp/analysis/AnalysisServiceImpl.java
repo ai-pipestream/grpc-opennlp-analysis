@@ -24,6 +24,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +40,10 @@ import ai.pipestream.opennlp.analysis.v1.AnalysisOptions;
 import ai.pipestream.opennlp.analysis.v1.AnalysisServiceGrpc;
 import ai.pipestream.opennlp.analysis.v1.AnalyzeRequest;
 import ai.pipestream.opennlp.analysis.v1.AnalyzeResponse;
+import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamDoc;
+import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamError;
+import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamRequest;
+import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamResponse;
 import ai.pipestream.opennlp.analysis.v1.ChunkEmbedding;
 import ai.pipestream.opennlp.analysis.v1.Entity;
 import ai.pipestream.opennlp.analysis.v1.GetCapabilitiesRequest;
@@ -45,6 +53,7 @@ import ai.pipestream.opennlp.analysis.v1.TermVector;
 import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
 import ai.pipestream.opennlp.analysis.v1.Token;
 import io.grpc.Status;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import opennlp.tools.document.Annotation;
 import opennlp.tools.document.Document;
@@ -70,6 +79,13 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
   private final ConcurrentHashMap<PipelineOptions, AnalysisPipeline> pipelines =
       new ConcurrentHashMap<>();
 
+  // AnalyzeStream workers, shared across streams. The in-flight window each
+  // stream grants through manual flow control is derived from this pool's
+  // size, so capacity is declared exactly where the CPU lives instead of
+  // being guessed client-side.
+  private final ExecutorService streamWorkers;
+  private final int streamWindow;
+
   /**
    * @param environment shared model resources, must not be {@code null}
    * @param config server configuration, must not be {@code null}
@@ -80,12 +96,23 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     }
     this.environment = environment;
     this.config = config;
+    final int workers = config.resolvedStreamWorkers();
+    final AtomicInteger names = new AtomicInteger();
+    this.streamWorkers = Executors.newFixedThreadPool(workers, runnable -> {
+      final Thread thread = new Thread(runnable,
+          "analyze-stream-" + names.incrementAndGet());
+      // Daemon: the gRPC server's lifecycle is the process lifecycle; the
+      // pool must never keep a shutting-down JVM alive.
+      thread.setDaemon(true);
+      return thread;
+    });
+    this.streamWindow = 2 * workers;
   }
 
   @Override
   public void analyze(AnalyzeRequest request, StreamObserver<AnalyzeResponse> observer) {
     try {
-      final String text = validatedText(request);
+      final String text = validatedText(request.getText());
       final PipelineOptions options = OptionsMapper.fromProto(request.getOptions());
       final AnalysisPipeline pipeline =
           pipelines.computeIfAbsent(options, o -> AnalysisPipeline.create(o, environment));
@@ -102,6 +129,169 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       LOG.error("Analysis failed", e);
       observer.onError(Status.INTERNAL
           .withDescription("analysis failed: " + e.getMessage()).asRuntimeException());
+    }
+  }
+
+  @Override
+  public StreamObserver<AnalyzeStreamRequest> analyzeStream(
+      StreamObserver<AnalyzeStreamResponse> responseObserver) {
+    final ServerCallStreamObserver<AnalyzeStreamResponse> call =
+        (ServerCallStreamObserver<AnalyzeStreamResponse>) responseObserver;
+    // Manual flow control: the server grants inbound messages from its own
+    // worker capacity. One grant for the options message; the window opens
+    // once options resolve, and every completed document grants one more.
+    call.disableAutoRequest();
+    final StreamSession session = new StreamSession(call);
+    call.setOnCancelHandler(session::cancel);
+    call.request(1);
+    return session;
+  }
+
+  /**
+   * One AnalyzeStream call. Documents are analyzed on the shared worker pool
+   * and answered in completion order; {@code sendLock} serializes writes
+   * because {@link StreamObserver} is not thread-safe.
+   */
+  private final class StreamSession implements StreamObserver<AnalyzeStreamRequest> {
+
+    private final ServerCallStreamObserver<AnalyzeStreamResponse> call;
+    private final Object sendLock = new Object();
+    private final AtomicInteger inFlight = new AtomicInteger();
+    private final AtomicBoolean finished = new AtomicBoolean();
+    private volatile AnalysisPipeline pipeline;
+    private volatile boolean clientDone;
+    private volatile boolean cancelled;
+
+    private StreamSession(ServerCallStreamObserver<AnalyzeStreamResponse> call) {
+      this.call = call;
+    }
+
+    @Override
+    public void onNext(AnalyzeStreamRequest request) {
+      if (cancelled) {
+        return;
+      }
+      switch (request.getMsgCase()) {
+        case OPTIONS -> onOptions(request.getOptions());
+        case DOC -> onDoc(request.getDoc());
+        default -> failStream(Status.INVALID_ARGUMENT
+            .withDescription("message carries neither options nor doc"));
+      }
+    }
+
+    private void onOptions(AnalysisOptions options) {
+      if (pipeline != null) {
+        failStream(Status.INVALID_ARGUMENT
+            .withDescription("options may only be the first message of the stream"));
+        return;
+      }
+      try {
+        final PipelineOptions mapped = OptionsMapper.fromProto(options);
+        pipeline = pipelines.computeIfAbsent(mapped,
+            o -> AnalysisPipeline.create(o, environment));
+      } catch (io.grpc.StatusRuntimeException e) {
+        failStream(e.getStatus());
+        return;
+      } catch (IllegalArgumentException e) {
+        failStream(Status.INVALID_ARGUMENT.withDescription(e.getMessage()));
+        return;
+      } catch (RuntimeException e) {
+        LOG.error("Stream pipeline construction failed", e);
+        failStream(Status.INTERNAL
+            .withDescription("pipeline construction failed: " + e.getMessage()));
+        return;
+      }
+      call.request(streamWindow);
+    }
+
+    private void onDoc(AnalyzeStreamDoc doc) {
+      if (pipeline == null) {
+        failStream(Status.INVALID_ARGUMENT
+            .withDescription("the first message of the stream must carry options"));
+        return;
+      }
+      inFlight.incrementAndGet();
+      streamWorkers.execute(() -> analyzeOne(doc));
+    }
+
+    private void analyzeOne(AnalyzeStreamDoc doc) {
+      try {
+        if (!cancelled) {
+          send(resultFor(doc));
+        }
+      } finally {
+        inFlight.decrementAndGet();
+        if (!cancelled) {
+          call.request(1);
+        }
+        maybeComplete();
+      }
+    }
+
+    private AnalyzeStreamResponse resultFor(AnalyzeStreamDoc doc) {
+      final AnalyzeStreamResponse.Builder response =
+          AnalyzeStreamResponse.newBuilder().setSequence(doc.getSequence());
+      try {
+        final String text = validatedText(doc.getText());
+        final Document document = pipeline.analyze(text);
+        response.setOk(toResponse(document, pipeline, environment.lemmatizer()));
+      } catch (io.grpc.StatusRuntimeException e) {
+        response.setError(AnalyzeStreamError.newBuilder()
+            .setCode(e.getStatus().getCode().value())
+            .setMessage(String.valueOf(e.getStatus().getDescription())));
+      } catch (IllegalArgumentException e) {
+        response.setError(AnalyzeStreamError.newBuilder()
+            .setCode(Status.Code.INVALID_ARGUMENT.value())
+            .setMessage(String.valueOf(e.getMessage())));
+      } catch (RuntimeException e) {
+        LOG.error("Stream analysis failed for sequence {}", doc.getSequence(), e);
+        response.setError(AnalyzeStreamError.newBuilder()
+            .setCode(Status.Code.INTERNAL.value())
+            .setMessage("analysis failed: " + e.getMessage()));
+      }
+      return response.build();
+    }
+
+    @Override
+    public void onError(Throwable t) {
+      // The client aborted; in-flight workers see the flag and stay quiet.
+      cancelled = true;
+    }
+
+    @Override
+    public void onCompleted() {
+      clientDone = true;
+      maybeComplete();
+    }
+
+    private void cancel() {
+      cancelled = true;
+    }
+
+    private void maybeComplete() {
+      if (clientDone && !cancelled && inFlight.get() == 0
+          && finished.compareAndSet(false, true)) {
+        synchronized (sendLock) {
+          call.onCompleted();
+        }
+      }
+    }
+
+    private void send(AnalyzeStreamResponse response) {
+      synchronized (sendLock) {
+        if (!cancelled && !finished.get()) {
+          call.onNext(response);
+        }
+      }
+    }
+
+    private void failStream(Status status) {
+      cancelled = true;
+      if (finished.compareAndSet(false, true)) {
+        synchronized (sendLock) {
+          call.onError(status.asRuntimeException());
+        }
+      }
     }
   }
 
@@ -144,8 +334,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     return pipelines.size();
   }
 
-  private String validatedText(AnalyzeRequest request) {
-    final String text = request.getText();
+  private String validatedText(String text) {
     if (text.isEmpty()) {
       throw Status.INVALID_ARGUMENT
           .withDescription("text must not be empty").asRuntimeException();

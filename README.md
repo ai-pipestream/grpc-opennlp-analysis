@@ -13,7 +13,9 @@
 A pure-gRPC NLP analysis service wrapping Apache OpenNLP 3.x, built for
 downstream search consumers (turbovec BM25/vector indexing). One `Analyze`
 call turns raw text into tokens, sentences, stems, entities, term vectors, and
-chunk embeddings — all with **original-text offsets**.
+chunk embeddings — all with **original-text offsets** — and `AnalyzeStream`
+carries the same analysis for bulk indexing: many documents over one bidi
+call, paced by server-side flow control.
 
 > **Caveat: experimental dependency.**
 > This service runs an **experimental, unmerged Apache OpenNLP 3.x preview
@@ -122,6 +124,33 @@ Errors: empty text or text over the size cap → `INVALID_ARGUMENT`; term
 vectors with `source: SOURCE_STEMS` but no stemmer → `INVALID_ARGUMENT`;
 analysis failures → `INTERNAL` with a clean message. No stack traces on the
 wire.
+
+### `AnalyzeStream(stream AnalyzeStreamRequest) → stream AnalyzeStreamResponse`
+
+Bulk analysis over one bidi call: the transport for indexing pipelines that
+push millions of documents, where per-call dispatch and client-side
+concurrency guessing add up. The first message carries `AnalysisOptions` and
+fixes the pipeline for the whole stream (two option-sets → two streams;
+streams are cheap on HTTP/2). Every later message is a document tagged with a
+client-chosen `sequence`, echoed on its response.
+
+The contract, in the order it matters:
+
+- **Responses arrive in completion order, not request order.** The server
+  analyzes documents concurrently; match responses by `sequence`. A slow
+  document never blocks finished ones behind it.
+- **Per-document failures do not fail the stream.** Empty text, oversized
+  text, or an analysis failure produce an `AnalyzeStreamResponse` carrying an
+  error (canonical gRPC code + message) for that sequence; the stream
+  continues. Only protocol violations end the call: a first message that is
+  not options, or a second options message → `INVALID_ARGUMENT`.
+- **Flow control is server-granted.** The server disables automatic inbound
+  requests and grants messages from its actual worker capacity
+  (`OPENNLP_STREAM_WORKERS`, default: processor count; window 2× workers), so
+  a client that writes as the stream allows is paced by the machine doing the
+  work, with backpressure propagating through HTTP/2 to the producer.
+- A document that succeeds returns an `ok` payload byte-identical to what
+  `Analyze` would return for the same text and options.
 
 ### Stemmers
 
@@ -242,6 +271,7 @@ configuration and are never downloaded at request time:
 | Hunspell .aff file | `OPENNLP_HUNSPELL_AFF` | `opennlp.hunspell.aff` | unset (unavailable) |
 | Hunspell .dic file | `OPENNLP_HUNSPELL_DIC` | `opennlp.hunspell.dic` | unset (unavailable) |
 | Lemmatizer dictionary | `OPENNLP_LEMMATIZER_DICT` | `opennlp.lemmatizer.dict` | unset (unavailable) |
+| AnalyzeStream workers | `OPENNLP_STREAM_WORKERS` | `opennlp.stream.workers` | `0` (processor count) |
 
 The server exposes the gRPC **health service** (`""` and the fully-qualified
 service name are `SERVING`) and **server reflection**. Shutdown is graceful:
