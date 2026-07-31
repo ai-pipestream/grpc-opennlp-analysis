@@ -70,7 +70,9 @@ class AnalyzeStreamTest {
     final ServiceConfig config =
         new ServiceConfig(0, MAX_TEXT_BYTES, null, null, null, null, null, null);
     server = NettyServerBuilder.forPort(0)
-        .addService(new AnalysisServiceImpl(PipelineEnvironment.load(config), config))
+        .addService(io.grpc.ServerInterceptors.intercept(
+            new AnalysisServiceImpl(PipelineEnvironment.load(config), config),
+            new EagerHeadersInterceptor()))
         .build()
         .start();
     channel = NettyChannelBuilder.forAddress("127.0.0.1", server.getPort())
@@ -291,6 +293,48 @@ class AnalyzeStreamTest {
     assertThat(collector.responses).hasSize(2);
     assertThat(collector.responses)
         .allMatch(r -> r.getSequence() == 7L && r.hasOk());
+  }
+
+  @Test
+  void headersArriveBeforeTheFirstResult() throws Exception {
+    // A tonic client's stream open resolves on response HEADERS; grpc-java
+    // sends them lazily with the first message unless the eager-headers
+    // interceptor runs. This pins the interceptor: headers must arrive
+    // while only options (no documents) have been sent, or an
+    // open-before-submit client deadlocks.
+    final CountDownLatch headers = new CountDownLatch(1);
+    final io.grpc.ClientInterceptor recorder = new io.grpc.ClientInterceptor() {
+      @Override
+      public <ReqT, RespT> io.grpc.ClientCall<ReqT, RespT> interceptCall(
+          io.grpc.MethodDescriptor<ReqT, RespT> method, io.grpc.CallOptions options,
+          io.grpc.Channel next) {
+        return new io.grpc.ForwardingClientCall.SimpleForwardingClientCall<>(
+            next.newCall(method, options)) {
+          @Override
+          public void start(Listener<RespT> listener, io.grpc.Metadata metadata) {
+            super.start(
+                new io.grpc.ForwardingClientCallListener
+                    .SimpleForwardingClientCallListener<>(listener) {
+                  @Override
+                  public void onHeaders(io.grpc.Metadata received) {
+                    headers.countDown();
+                    super.onHeaders(received);
+                  }
+                }, metadata);
+          }
+        };
+      }
+    };
+    final Collector collector = new Collector();
+    final StreamObserver<AnalyzeStreamRequest> requests =
+        AnalysisServiceGrpc.newStub(channel).withInterceptors(recorder)
+            .analyzeStream(collector);
+    requests.onNext(options(bm25Options()));
+    assertThat(headers.await(10, TimeUnit.SECONDS))
+        .as("headers before any document was submitted").isTrue();
+    requests.onCompleted();
+    collector.await();
+    assertThat(collector.error.get()).isNull();
   }
 
   @Test

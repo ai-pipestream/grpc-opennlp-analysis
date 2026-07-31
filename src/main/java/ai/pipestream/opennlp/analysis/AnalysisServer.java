@@ -63,7 +63,10 @@ public final class AnalysisServer {
         // The transport cap must track the configured text cap: Netty's
         // 4 MiB default would reject requests OPENNLP_MAX_TEXT_BYTES allows.
         .maxInboundMessageSize(Math.max(4 * 1024 * 1024, config.maxTextBytes() + 1024 * 1024))
-        .addService(new AnalysisServiceImpl(environment, config))
+        // Eager headers make call acceptance visible before the first
+        // result, which AnalyzeStream clients await before submitting.
+        .addService(io.grpc.ServerInterceptors.intercept(
+            new AnalysisServiceImpl(environment, config), new EagerHeadersInterceptor()))
         .addService(health.getHealthService())
         .addService(ProtoReflectionServiceV1.newInstance())
         .build()
