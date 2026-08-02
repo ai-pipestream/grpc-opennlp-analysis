@@ -61,6 +61,7 @@ import opennlp.tools.stemmer.snowball.SnowballStemmer;
 import opennlp.tools.termvector.TermVectorAnnotator;
 import opennlp.tools.tokenize.SimpleTokenizer;
 import opennlp.tools.tokenize.WhitespaceTokenizer;
+import opennlp.tools.util.normalizer.CharSequenceNormalizer;
 import opennlp.tools.util.normalizer.GermanUmlautCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.OffsetAwareNormalizer;
 import opennlp.tools.util.normalizer.TextNormalizer;
@@ -128,7 +129,17 @@ public final class AnalysisPipeline {
     });
 
     if (options.stemmer() != PipelineOptions.Stemmer.NONE) {
-      final Stemmer stemmer = stemmer(options.stemmer(), environment, warnings);
+      Stemmer stemmer = stemmer(options.stemmer(), environment, warnings);
+      // NORMALIZED_STEMS folds BEFORE stemming. Stemmers are written for
+      // folded input, so without this "COURT" survives a Porter pass
+      // unchanged while "court" stems normally, and one corpus ends up
+      // holding both as distinct terms.
+      if (stemmer != null
+          && options.termVectors() != null
+          && options.termVectors().source()
+              == PipelineOptions.TermVectorSource.NORMALIZED_STEMS) {
+        stemmer = normalizingStemmer(stemmer, options.termVectors().rungs());
+      }
       if (stemmer != null) {
         builder.add(new StemmerAnnotator(stemmer));
       }
@@ -235,7 +246,38 @@ public final class AnalysisPipeline {
    * an {@link OffsetAwareNormalizer}: term identity is computed on normalized
    * text while every occurrence span stays in original text coordinates.
    */
+  /**
+   * Wraps a stemmer so the normalizer rung chain runs on each token before
+   * it is stemmed, making the stem of the normalized form the term
+   * identity.
+   *
+   * <p>This is deliberately the same rung list the token path would use, so
+   * NORMALIZED_STEMS and TOKENS agree on what "the same word" means and
+   * differ only in whether the stemmer then applies.
+   */
+  private static Stemmer normalizingStemmer(
+      Stemmer delegate, List<PipelineOptions.NormalizerRung> rungs) {
+    final CharSequenceNormalizer normalizer = normalizerChain(rungs);
+    return text -> delegate.stem(normalizer.normalize(text));
+  }
+
+  /** The rung chain as a plain normalizer (no offset alignment needed: the
+   * token's offsets come from the tokenizer, not from its stemmed form). */
+  private static CharSequenceNormalizer normalizerChain(
+      List<PipelineOptions.NormalizerRung> rungs) {
+    return normalizerBuilder(rungs).build();
+  }
+
   private static OffsetAwareNormalizer alignedNormalizer(
+      List<PipelineOptions.NormalizerRung> rungs) {
+    return normalizerBuilder(rungs).buildAligned();
+  }
+
+  /** Populates a normalizer builder from the rung list; the two build
+   * methods (aligned for term vectors, plain for the stemmer decorator)
+   * must see the SAME chain or the two sources would disagree on
+   * identity. */
+  private static TextNormalizer.Builder normalizerBuilder(
       List<PipelineOptions.NormalizerRung> rungs) {
     final TextNormalizer.Builder builder = TextNormalizer.builder();
     if (rungs.contains(PipelineOptions.NormalizerRung.STRIP_INVISIBLE)) {
@@ -272,7 +314,7 @@ public final class AnalysisPipeline {
       // No dedicated builder method, but the rung is offset-aware and composes.
       builder.with(GermanUmlautCharSequenceNormalizer.getInstance());
     }
-    return builder.buildAligned();
+    return builder;
   }
 
   /**

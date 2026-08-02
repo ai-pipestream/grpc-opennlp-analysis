@@ -40,7 +40,8 @@ final class OptionsMapper {
     if (proto.hasTermVectors() && proto.getTermVectors().getEnabled()) {
       final PipelineOptions.TermVectorSource source =
           termVectorSource(proto.getTermVectors().getSource());
-      if (source == PipelineOptions.TermVectorSource.STEMS
+      if ((source == PipelineOptions.TermVectorSource.STEMS
+          || source == PipelineOptions.TermVectorSource.NORMALIZED_STEMS)
           && stemmer == PipelineOptions.Stemmer.NONE) {
         throw Status.INVALID_ARGUMENT
             .withDescription("term vector source STEMS requires a stemmer other "
@@ -108,6 +109,7 @@ final class OptionsMapper {
     return switch (value) {
       case SOURCE_UNSPECIFIED, SOURCE_TOKENS -> PipelineOptions.TermVectorSource.TOKENS;
       case SOURCE_STEMS -> PipelineOptions.TermVectorSource.STEMS;
+      case SOURCE_NORMALIZED_STEMS -> PipelineOptions.TermVectorSource.NORMALIZED_STEMS;
       case UNRECOGNIZED -> throw Status.INVALID_ARGUMENT
           .withDescription("unrecognized term vector source value").asRuntimeException();
     };

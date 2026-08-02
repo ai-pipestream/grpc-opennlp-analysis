@@ -409,11 +409,16 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
 
     final PipelineOptions.TermVectorSpec termVectorSpec = pipeline.options().termVectors();
     if (termVectorSpec != null
-        && termVectorSpec.source() == PipelineOptions.TermVectorSource.STEMS) {
+        && (termVectorSpec.source() == PipelineOptions.TermVectorSource.STEMS
+            || termVectorSpec.source()
+                == PipelineOptions.TermVectorSource.NORMALIZED_STEMS)) {
       // The stem IS the term identity: group every token under its stem, in
       // first-occurrence order, carrying the token spans in original text
       // coordinates. The pipeline guarantees the stems layer exists here
-      // (the mapper rejects STEMS without a stemmer).
+      // (the mapper rejects either stem source without a stemmer). Under
+      // NORMALIZED_STEMS the stemmer it consulted was the normalizing
+      // decorator, so the grouping key is already the folded stem and this
+      // block needs no other change.
       final boolean full = termVectorSpec.mode() == PipelineOptions.TermVectorMode.FULL;
       final Map<String, List<opennlp.tools.util.Span>> spansByStem = new LinkedHashMap<>();
       for (Annotation<String> token : tokens) {

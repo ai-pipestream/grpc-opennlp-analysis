@@ -156,7 +156,9 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     /** Group by normalized token text; the rungs define identity. */
     TOKENS,
     /** Group by stem; the stem alone defines identity, rungs ignored. */
-    STEMS
+    STEMS,
+    /** Group by the stem of the normalized token; rungs run, then the stemmer. */
+    NORMALIZED_STEMS
   }
 
   /** One rung of the aligned normalizer chain. */
