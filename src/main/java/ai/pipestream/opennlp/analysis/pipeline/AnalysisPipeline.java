@@ -713,7 +713,6 @@ public final class AnalysisPipeline {
     };
   }
 
-  /** Serializes a model-based annotator whose implementation is not thread-safe. */
   /**
    * Every configured name finder behind one {@link TokenNameFinder}.
    *
@@ -750,27 +749,4 @@ public final class AnalysisPipeline {
     }
   }
 
-  private static final class SynchronizedAnnotator implements DocumentAnnotator {
-
-    private final DocumentAnnotator delegate;
-
-    private SynchronizedAnnotator(DocumentAnnotator delegate) {
-      this.delegate = delegate;
-    }
-
-    @Override
-    public synchronized Document annotate(Document document) {
-      return delegate.annotate(document);
-    }
-
-    @Override
-    public Set<LayerKey<?>> requires() {
-      return delegate.requires();
-    }
-
-    @Override
-    public Set<LayerKey<?>> provides() {
-      return delegate.provides();
-    }
-  }
 }
