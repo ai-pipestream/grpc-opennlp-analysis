@@ -225,14 +225,18 @@ grpcurl -plaintext -d '{
 #      "occurrences": [{0-7}, {8-12}, {13-16}]}]
 ```
 
-### Dictionary lemmatization
+### Lemmatization
 
-`lemmatize: true` joins a server-configured dictionary
-(`OPENNLP_LEMMATIZER_DICT`, lines of `word<TAB>postag<TAB>lemma`) onto the
-tokens, one lemma per token. Lookup keys are (lowercased token, POS tag);
-when no POS model produced tags, every token looks up with the neutral empty
-tag, so tag-agnostic dictionaries work. Unknown words come back as `"O"`.
-Unconfigured → warning, no lemmas.
+`lemmatize: true` joins a server-configured backend onto the tokens, one
+lemma per token. Two backends: a WordNet database directory
+(`OPENNLP_WORDNET_DIR`, the WNdb `data.*`/`index.*`/`*.exc` files — the
+Morphy lemmatizer, real validated lemmas) or a flat dictionary
+(`OPENNLP_LEMMATIZER_DICT`, lines of `word<TAB>postag<TAB>lemma`). When both
+are set WordNet wins with a startup warning. Lookup keys on (token, POS
+tag); the WordNet backend adapts UD tags (`PROPN` lemmatizes as a noun) and
+falls back to an all-POS lookup when no POS model produced tags, while the
+flat dictionary looks up with the neutral empty tag. Unknown words come
+back as `"O"`. Unconfigured → warning, no lemmas.
 
 ### Normalizer steps
 
@@ -289,8 +293,15 @@ configuration and are never downloaded at request time:
 - **Hunspell stemming** — set `OPENNLP_HUNSPELL_AFF` and
   `OPENNLP_HUNSPELL_DIC` to a Hunspell dictionary pair, then select
   `STEMMER_HUNSPELL` per request.
-- **Dictionary lemmatization** — set `OPENNLP_LEMMATIZER_DICT` to a
-  `word<TAB>postag<TAB>lemma` file, then set `lemmatize: true` per request.
+- **Lemmatization** — set `OPENNLP_WORDNET_DIR` to a WordNet database
+  directory (preferred; the Morphy lemmatizer) or `OPENNLP_LEMMATIZER_DICT`
+  to a `word<TAB>postag<TAB>lemma` file, then set `lemmatize: true` per
+  request.
+- **Spell correction** — set `OPENNLP_SPELLCHECK_MODEL` to a serialized
+  SymSpell model, then add `NORMALIZER_STEP_SPELLCHECK` to a term vector
+  spec's steps. Model-gated: without a model the step is skipped with a
+  warning. Correction shapes term identity only — use it in a parallel
+  column's spec, never silently in the body's.
 - **Lattice (CJK) tokenizer** — set `OPENNLP_LATTICE_DIC_DIR` to a MeCab
   dictionary directory (IPADIC, UniDic, …), then select `TOKENIZER_LATTICE`.
   Unconfigured requests fall back to whitespace tokenization with a warning.
@@ -337,7 +348,9 @@ and the generated parseable rendition shadows it on the classpath.
 | NER model file | `OPENNLP_NER_MODEL` | `opennlp.ner.model` | unset (unavailable) |
 | Hunspell .aff file | `OPENNLP_HUNSPELL_AFF` | `opennlp.hunspell.aff` | unset (unavailable) |
 | Hunspell .dic file | `OPENNLP_HUNSPELL_DIC` | `opennlp.hunspell.dic` | unset (unavailable) |
+| WordNet database dir | `OPENNLP_WORDNET_DIR` | `opennlp.wordnet.dir` | unset (unavailable) |
 | Lemmatizer dictionary | `OPENNLP_LEMMATIZER_DICT` | `opennlp.lemmatizer.dict` | unset (unavailable) |
+| Spell-check model file | `OPENNLP_SPELLCHECK_MODEL` | `opennlp.spellcheck.model` | unset (SPELLCHECK step skipped with a warning) |
 | MeCab dictionary dir | `OPENNLP_LATTICE_DIC_DIR` | `opennlp.lattice.dic.dir` | unset (LATTICE falls back to whitespace) |
 | SentencePiece model file | `OPENNLP_SENTENCEPIECE_MODEL` | `opennlp.sentencepiece.model` | unset (SENTENCEPIECE falls back to whitespace) |
 | Dependency model file | `OPENNLP_DEPPARSE_MODEL` | `opennlp.depparse.model` | unset (unavailable) |
