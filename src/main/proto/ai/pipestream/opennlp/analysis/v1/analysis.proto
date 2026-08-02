@@ -310,10 +310,18 @@ message AnalysisOptions {
   EmbeddingOptions embeddings = 8;
 
   // Whether to run dictionary lemmatization. Requires the server to be
-  // configured with a lemmatizer dictionary (OPENNLP_LEMMATIZER_DICT); when no
-  // dictionary is configured the request still succeeds, lemmas stays empty,
-  // and a warning is returned. When served, the response carries one lemma per
-  // token, parallel to tokens.
+  // configured with a lemmatizer backend: a WordNet database directory
+  // (OPENNLP_WORDNET_DIR, the Morphy lemmatizer, takes precedence) or a flat
+  // lemmatizer dictionary (OPENNLP_LEMMATIZER_DICT); when neither is
+  // configured the request still succeeds, lemmas stays empty, and a warning
+  // is returned. When served, the response carries one lemma per token,
+  // parallel to tokens.
+  //
+  // Lookup keys on (token, POS tag); the WordNet backend adapts UD tags
+  // (PROPN lemmatizes as a noun) and falls back to an all-POS lookup when no
+  // POS model produced tags, while the flat dictionary looks up with the
+  // neutral empty tag. Words missing from the lexicon come back as "O", the
+  // OpenNLP convention.
   bool lemmatize = 9;
 
   // Whether to score text noise: OCR damage, gibberish, base64-ish blobs.
@@ -836,11 +844,12 @@ message AnalyzeResponse {
   repeated string warnings = 7;
 
   // One lemma per token, exactly parallel to tokens. Empty unless lemmatize
-  // was requested AND the server has a lemmatizer dictionary configured.
-  // Lookup keys are (lowercased token, POS tag); when no POS model produced
-  // tags, every token looks up with the neutral empty tag, so tag-agnostic
-  // dictionaries work. Words missing from the dictionary come back as "O",
-  // the OpenNLP convention.
+  // was requested AND the server has a lemmatizer backend configured
+  // (OPENNLP_WORDNET_DIR or OPENNLP_LEMMATIZER_DICT). Lookup keys on (token,
+  // POS tag); when no POS model produced tags, the backend's tagless path
+  // applies (neutral tag for the flat dictionary, all-POS fallback for
+  // WordNet). Words missing from the lexicon come back as "O", the OpenNLP
+  // convention.
   repeated string lemmas = 8;
 
   // Noise findings, in text order. Empty unless noise was requested.

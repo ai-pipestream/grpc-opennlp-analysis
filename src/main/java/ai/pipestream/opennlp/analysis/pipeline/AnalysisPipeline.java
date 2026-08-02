@@ -282,12 +282,14 @@ public final class AnalysisPipeline {
 
     // Lemmatization is service-side (like stem-sourced term vectors):
     // LemmatizerAnnotator requires the POS layer, which needs a model, so the
-    // pipeline only records whether the dictionary is missing; the service
-    // joins the dictionary onto the tokens after analysis, using the POS
-    // layer when it happens to exist and a neutral tag otherwise.
+    // pipeline only records whether a backend is missing; the service joins
+    // the backend (WordNet Morphy or the flat dictionary) onto the tokens
+    // after analysis, using the POS layer when it happens to exist and the
+    // backend's tagless path otherwise.
     if (options.lemmatize() && environment.lemmatizer() == null) {
-      warnings.add("lemmatize was requested but no lemmatizer dictionary is "
-          + "configured (OPENNLP_LEMMATIZER_DICT); lemmas stays empty");
+      warnings.add("lemmatize was requested but no lemmatizer backend is "
+          + "configured (OPENNLP_WORDNET_DIR or OPENNLP_LEMMATIZER_DICT); "
+          + "lemmas stays empty");
     }
 
     if (options.pii()) {

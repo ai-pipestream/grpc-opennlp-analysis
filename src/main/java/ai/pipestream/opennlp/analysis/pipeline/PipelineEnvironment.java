@@ -29,10 +29,14 @@ import opennlp.embeddings.StaticEmbeddingModel;
 import opennlp.subword.sentencepiece.SentencePieceTokenizer;
 import opennlp.tools.depparse.FeedforwardDependencyModel;
 import opennlp.tools.lemmatizer.DictionaryLemmatizer;
+import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.namefind.TokenNameFinderModel;
 import opennlp.tools.postag.POSModel;
 import opennlp.tools.stemmer.hunspell.HunspellDictionary;
 import opennlp.tools.tokenize.lattice.MecabDictionary;
+import opennlp.wordnet.MorphyExceptions;
+import opennlp.wordnet.MorphyLemmatizer;
+import opennlp.wordnet.WndbReader;
 
 /**
  * Server-level shared resources that pipelines draw on: the static embedding
@@ -50,8 +54,10 @@ import opennlp.tools.tokenize.lattice.MecabDictionary;
  * @param nerModel the NER model, or {@code null} when NER is unavailable
  * @param hunspellDictionary the Hunspell dictionary, or {@code null} when
  *                           STEMMER_HUNSPELL is unavailable
- * @param lemmatizer the dictionary lemmatizer, or {@code null} when
- *                   lemmatization is unavailable
+ * @param lemmatizer the lemmatizer backend (WordNet Morphy when
+ *                   {@code OPENNLP_WORDNET_DIR} is set, otherwise the
+ *                   dictionary lemmatizer), or {@code null} when lemmatization
+ *                   is unavailable
  * @param mecabDictionary the MeCab dictionary for the lattice (CJK)
  *                        tokenizer, or {@code null} when TOKENIZER_LATTICE is
  *                        unavailable
@@ -67,7 +73,7 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                                   POSModel posModel,
                                   TokenNameFinderModel nerModel,
                                   HunspellDictionary hunspellDictionary,
-                                  DictionaryLemmatizer lemmatizer,
+                                  Lemmatizer lemmatizer,
                                   MecabDictionary mecabDictionary,
                                   SentencePieceTokenizer sentencePieceTokenizer,
                                   FeedforwardDependencyModel depparseModel,
@@ -84,7 +90,7 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                              POSModel posModel,
                              TokenNameFinderModel nerModel,
                              HunspellDictionary hunspellDictionary,
-                             DictionaryLemmatizer lemmatizer,
+                             Lemmatizer lemmatizer,
                              List<String> loadWarnings) {
     this(embeddingModel, embeddingsDirDescription, posModel, nerModel,
         hunspellDictionary, lemmatizer, null, null, null, loadWarnings);
@@ -176,8 +182,28 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
           + "only one is set, so STEMMER_HUNSPELL requests return a warning and no stems");
     }
 
-    DictionaryLemmatizer lemmatizer = null;
-    if (config.lemmatizerDictPath() != null) {
+    Lemmatizer lemmatizer = null;
+    if (config.wordnetDir() != null) {
+      // WordNet wins over the flat dictionary when both are configured: the
+      // Morphy lemmatizer validates rule-derived candidates against the
+      // lexicon, so its lemmas are real words rather than truncations.
+      try {
+        lemmatizer = new WordNetLemmatizer(new MorphyLemmatizer(
+            WndbReader.read(config.wordnetDir()),
+            MorphyExceptions.load(config.wordnetDir())));
+        LOG.info("Loaded WordNet lemmatizer from {}", config.wordnetDir());
+        if (config.lemmatizerDictPath() != null) {
+          warnings.add("both OPENNLP_WORDNET_DIR and OPENNLP_LEMMATIZER_DICT are "
+              + "set; the WordNet lemmatizer serves lemmatize requests and "
+              + config.lemmatizerDictPath() + " is ignored");
+        }
+      } catch (IOException | RuntimeException e) {
+        warnings.add("OPENNLP_WORDNET_DIR is set to " + config.wordnetDir()
+            + " but the WordNet database could not be loaded: " + e.getMessage()
+            + "; lemmatize requests return a warning and no lemmas");
+        LOG.error("Could not load WordNet database from {}", config.wordnetDir(), e);
+      }
+    } else if (config.lemmatizerDictPath() != null) {
       try {
         lemmatizer = new DictionaryLemmatizer(config.lemmatizerDictPath());
         LOG.info("Loaded lemmatizer dictionary from {}", config.lemmatizerDictPath());

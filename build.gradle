@@ -39,6 +39,9 @@ dependencies {
     // Gazetteer implementations behind the geo annotators (bundled Natural
     // Earth data; no external files).
     implementation libs.opennlp.geo
+    // WordNet lexicon + Morphy lemmatizer (the OPENNLP_WORDNET_DIR lemmatizer
+    // backend).
+    implementation libs.opennlp.wordnet
 
     implementation libs.grpc.api
     implementation libs.grpc.stub

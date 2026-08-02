@@ -64,7 +64,7 @@ import opennlp.tools.depparse.DependencyAnnotator;
 import opennlp.tools.geo.DocumentRegionAnnotator;
 import opennlp.tools.geo.GeocodeAnnotator;
 import opennlp.tools.glossary.GlossaryAnnotator;
-import opennlp.tools.lemmatizer.DictionaryLemmatizer;
+import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.noise.NoiseAnnotator;
 import opennlp.tools.pii.PiiAnnotator;
 import opennlp.tools.relation.RelationAnnotator;
@@ -367,7 +367,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
    * that is the offset-fidelity guarantee of the contract.
    */
   private static AnalyzeResponse toResponse(Document document, AnalysisPipeline pipeline,
-                                            DictionaryLemmatizer lemmatizer) {
+                                            Lemmatizer lemmatizer) {
     final AnalyzeResponse.Builder response = AnalyzeResponse.newBuilder();
     final CharSequence text = document.text();
 
@@ -396,11 +396,13 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       }
     }
 
-    // Dictionary lemmatization, service-side: the OpenNLP LemmatizerAnnotator
-    // requires the POS layer (a model dependency), so the dictionary is joined
+    // Lemmatization, service-side: the OpenNLP LemmatizerAnnotator requires
+    // the POS layer (a model dependency), so the configured backend is joined
     // onto the tokens here instead. POS tags feed the lookup when a POS model
-    // produced them; otherwise every token looks up with the neutral empty
-    // tag. Unknown words come back as "O", the OpenNLP convention.
+    // produced them (UD tags are adapted for the WordNet backend); otherwise
+    // every token looks up tagless (the dictionary backend's neutral tag, the
+    // WordNet backend's all-POS fallback). Unknown words come back as "O",
+    // the OpenNLP convention.
     if (pipeline.options().lemmatize() && lemmatizer != null) {
       final String[] words = new String[tokens.size()];
       final String[] tags = new String[tokens.size()];
