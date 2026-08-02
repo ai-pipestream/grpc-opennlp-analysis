@@ -305,6 +305,27 @@ configuration and are never downloaded at request time:
   against the bundled Natural Earth populated-places gazetteer (no external
   data files).
 
+### Fetching dictionaries and models
+
+`ResourceDownloader` is the operator CLI for acquiring optional resources
+(nothing is ever downloaded at request time). It builds on the preview's
+`ResourceInstaller`: SHA-256 verification, tar.gz/zip unpacking, and
+archive-path-escape rejection.
+
+```bash
+./gradlew downloadResource --args="list"                                    # the catalog
+./gradlew downloadResource --args="install hunspell-en-us /path/to/dir"     # catalog entry
+./gradlew downloadResource --args="install <uri> <dir> [sha256-hex]"        # any file/archive
+```
+
+Installing a catalog entry prints the exact `OPENNLP_*` exports to hand the
+server. The catalog currently covers the LibreOffice Hunspell English (US)
+dictionary; anything else (a MeCab dictionary tarball, a SentencePiece
+`.model`, a feedforward dependency model) installs by URL. Note that
+POS/NER `.bin` model LOADING additionally needs the preview fork's
+`opennlp.version` fix (its `3.x-preview-SNAPSHOT` string does not parse);
+dictionary and custom-format model paths are unaffected.
+
 ## Configuration
 
 | Setting | Env var | System property | Default |

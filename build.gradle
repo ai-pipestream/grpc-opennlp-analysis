@@ -154,6 +154,15 @@ tasks.register('bufLint', Exec) {
     })
 }
 
+// Operator CLI for fetching optional analysis resources (Hunspell dictionaries,
+// MeCab dictionaries, model files). Usage: ./gradlew downloadResource --args="list"
+tasks.register('downloadResource', JavaExec) {
+    group = 'application'
+    description = 'Fetch an analysis resource: --args="list" | --args="install <name> [dir]" | --args="install <uri> <dir> [sha256]"'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'ai.pipestream.opennlp.analysis.tools.ResourceDownloader'
+}
+
 // Publishing: the service jar + sources jar as ai.pipestream:grpc-opennlp-analysis.
 // Snapshots go to the ai.pipestream Forgejo registry (self-hosted side) or to
 // Central Snapshots (github.com side); releases would go through the Central
