@@ -35,18 +35,67 @@ import opennlp.tools.document.DocumentAnalyzer;
  * @param stemmer stemmer selection
  * @param termVectors term vector specification, or {@code null} when disabled
  * @param embeddingSource embedding source layer, or {@code null} when disabled
+ * @param noise whether noise scoring was requested
+ * @param artifacts whether text artifact flagging was requested
+ * @param glossary glossary matching specification, or {@code null} when disabled
+ * @param pii whether PII extraction was requested
+ * @param coref whether coreference resolution was requested
+ * @param dependencyParse whether dependency parsing was requested
+ * @param geo whether geocoding was requested
+ * @param relations relation patterns to match, empty when disabled
  */
 public record PipelineOptions(String language, Tokenizer tokenizer, boolean sentenceDetection,
                               boolean posTags, boolean ner, boolean lemmatize,
                               Stemmer stemmer,
-                              TermVectorSpec termVectors, EmbeddingSource embeddingSource) {
+                              TermVectorSpec termVectors, EmbeddingSource embeddingSource,
+                              boolean noise, boolean artifacts,
+                              GlossarySpec glossary, boolean pii, boolean coref,
+                              boolean dependencyParse, boolean geo,
+                              List<RelationPatternSpec> relations) {
 
-  /** Model-free tokenizers. */
+  /** Canonicalizes the relations list: {@code null} becomes empty. */
+  public PipelineOptions {
+    relations = relations == null ? List.of() : List.copyOf(relations);
+  }
+
+  /**
+   * Legacy convenience: same as the canonical constructor with every tier-1
+   * addition (noise, artifacts, glossary, PII, coref, dependency parse,
+   * relations) disabled.
+   *
+   * @param language ISO 639 language code
+   * @param tokenizer tokenizer selection
+   * @param sentenceDetection whether to split sentences
+   * @param posTags whether POS tagging was requested
+   * @param ner whether named-entity recognition was requested
+   * @param lemmatize whether dictionary lemmatization was requested
+   * @param stemmer stemmer selection
+   * @param termVectors term vector specification, or {@code null}
+   * @param embeddingSource embedding source layer, or {@code null}
+   */
+  public PipelineOptions(String language, Tokenizer tokenizer, boolean sentenceDetection,
+                         boolean posTags, boolean ner, boolean lemmatize,
+                         Stemmer stemmer,
+                         TermVectorSpec termVectors, EmbeddingSource embeddingSource) {
+    this(language, tokenizer, sentenceDetection, posTags, ner, lemmatize, stemmer,
+        termVectors, embeddingSource, false, false, null, false, false, false, false,
+        List.of());
+  }
+
+  /** Tokenizers. */
   public enum Tokenizer {
     /** Splits on whitespace only. */
     WHITESPACE,
     /** Character-class tokenizer: letters, digits, punctuation. */
-    SIMPLE
+    SIMPLE,
+    /** Unicode UAX #29 word segmentation. */
+    UAX29,
+    /** Lattice tokenizer over a MeCab dictionary (CJK); needs a
+     * server-configured dictionary directory (OPENNLP_LATTICE_DIC_DIR). */
+    LATTICE,
+    /** SentencePiece subword tokenizer; needs a server-configured model file
+     * (OPENNLP_SENTENCEPIECE_MODEL). */
+    SENTENCEPIECE
   }
 
   /**
@@ -184,7 +233,43 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     /** Converts emoticons to emoji. */
     EMOTICON_TO_EMOJI,
     /** Expands German umlauts and sharp-s to ASCII digraphs. */
-    GERMAN_UMLAUT
+    GERMAN_UMLAUT,
+    /** Unicode NFKC compatibility normalization. */
+    NFKC,
+    /** Unicode NFC canonical composition. */
+    NFC,
+    /** Unicode confusable skeleton folding (UTS #39). */
+    CONFUSABLE_SKELETON,
+    /** Strips accents and diacritics, separate from case folding. */
+    ACCENT_FOLD,
+    /** Simple case folding, distinct from {@link #FULL_CASE_FOLD}. */
+    CASE_FOLD,
+    /** Collapses horizontal whitespace, keeps line structure. */
+    LINE_BREAK_PRESERVING_WHITESPACE,
+    /** Replaces URLs and mail addresses with a single space. */
+    URL,
+    /** Replaces runs of ASCII digits with a single space. */
+    NUMBER,
+    /** Replaces hashtags, handles, and RT markers with a single space. */
+    SOCIAL_MEDIA,
+    /** Collapses whitespace and shrinks repeated-character runs to two. */
+    SHRINK;
+
+    /**
+     * Whether this rung can report a character alignment and so compose into
+     * the aligned whole-document chain. The JDK/regex-backed rungs (Unicode
+     * normalization, confusable/accent/case folding, and the URL/number/
+     * social-media/shrink rewrites) cannot; they run per token instead.
+     *
+     * @return {@code true} when the rung is offset-aware
+     */
+    public boolean isOffsetAware() {
+      return switch (this) {
+        case NFKC, NFC, CONFUSABLE_SKELETON, ACCENT_FOLD, CASE_FOLD, URL, NUMBER,
+            SOCIAL_MEDIA, SHRINK -> false;
+        default -> true;
+      };
+    }
   }
 
   /** Which annotation layer is embedded. */
@@ -193,6 +278,44 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     SENTENCES,
     /** Embed each token. */
     TOKENS
+  }
+
+  /**
+   * Glossary matching configuration: Aho-Corasick longest match of the given
+   * entries over the raw text, reported with original-text spans.
+   *
+   * @param entries the glossary entries (id + surface term); aliases are
+   *                multiple entries sharing one id. Never empty.
+   * @param ignoreCase whether matching ignores case (per code point)
+   */
+  public record GlossarySpec(List<opennlp.tools.glossary.GlossaryEntry> entries,
+                             boolean ignoreCase) {
+
+    /** Validates and defensively copies the entries. */
+    public GlossarySpec {
+      if (entries == null || entries.isEmpty()) {
+        throw new IllegalArgumentException("glossary entries must not be empty");
+      }
+      entries = List.copyOf(entries);
+    }
+  }
+
+  /**
+   * One relation extraction pattern: a dependency-path rule with a type.
+   *
+   * @param type relation type label attached to matches
+   * @param path whitespace-separated dependency steps ({@code '<'} up,
+   *             {@code '>'} down), for example {@code "<nsubj >obj"}
+   * @param trigger optional lowercased pivot-token form, or {@code null}
+   */
+  public record RelationPatternSpec(String type, String path, String trigger) {
+
+    /** Validates the mandatory fields. */
+    public RelationPatternSpec {
+      if (type == null || type.isBlank() || path == null || path.isBlank()) {
+        throw new IllegalArgumentException("relation pattern type and path must not be blank");
+      }
+    }
   }
 
   /**
@@ -246,6 +369,7 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
    */
   public static PipelineOptions defaults() {
     return new PipelineOptions("en", Tokenizer.WHITESPACE, true, false, false, false,
-        Stemmer.NONE, null, null);
+        Stemmer.NONE, null, null, false, false, null, false, false, false, false,
+        List.of());
   }
 }

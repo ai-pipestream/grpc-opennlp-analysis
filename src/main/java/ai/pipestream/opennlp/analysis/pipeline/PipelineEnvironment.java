@@ -26,10 +26,13 @@ import org.slf4j.LoggerFactory;
 
 import ai.pipestream.opennlp.analysis.config.ServiceConfig;
 import opennlp.embeddings.StaticEmbeddingModel;
+import opennlp.subword.sentencepiece.SentencePieceTokenizer;
+import opennlp.tools.depparse.FeedforwardDependencyModel;
 import opennlp.tools.lemmatizer.DictionaryLemmatizer;
 import opennlp.tools.namefind.TokenNameFinderModel;
 import opennlp.tools.postag.POSModel;
 import opennlp.tools.stemmer.hunspell.HunspellDictionary;
+import opennlp.tools.tokenize.lattice.MecabDictionary;
 
 /**
  * Server-level shared resources that pipelines draw on: the static embedding
@@ -49,6 +52,14 @@ import opennlp.tools.stemmer.hunspell.HunspellDictionary;
  *                           STEMMER_HUNSPELL is unavailable
  * @param lemmatizer the dictionary lemmatizer, or {@code null} when
  *                   lemmatization is unavailable
+ * @param mecabDictionary the MeCab dictionary for the lattice (CJK)
+ *                        tokenizer, or {@code null} when TOKENIZER_LATTICE is
+ *                        unavailable
+ * @param sentencePieceTokenizer the SentencePiece model for the subword
+ *                               tokenizer, or {@code null} when
+ *                               TOKENIZER_SENTENCEPIECE is unavailable
+ * @param depparseModel the feedforward dependency-parsing model, or
+ *                      {@code null} when dependency parsing is unavailable
  * @param loadWarnings problems encountered while loading configured models
  */
 public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
@@ -57,9 +68,27 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                                   TokenNameFinderModel nerModel,
                                   HunspellDictionary hunspellDictionary,
                                   DictionaryLemmatizer lemmatizer,
+                                  MecabDictionary mecabDictionary,
+                                  SentencePieceTokenizer sentencePieceTokenizer,
+                                  FeedforwardDependencyModel depparseModel,
                                   List<String> loadWarnings) {
 
   private static final Logger LOG = LoggerFactory.getLogger(PipelineEnvironment.class);
+
+  /**
+   * Without the tokenizer/parser models: lattice, SentencePiece, and
+   * dependency parsing are unavailable.
+   */
+  public PipelineEnvironment(StaticEmbeddingModel embeddingModel,
+                             String embeddingsDirDescription,
+                             POSModel posModel,
+                             TokenNameFinderModel nerModel,
+                             HunspellDictionary hunspellDictionary,
+                             DictionaryLemmatizer lemmatizer,
+                             List<String> loadWarnings) {
+    this(embeddingModel, embeddingsDirDescription, posModel, nerModel,
+        hunspellDictionary, lemmatizer, null, null, null, loadWarnings);
+  }
 
   /**
    * An environment with no models at all: embeddings, POS, NER, Hunspell, and
@@ -69,7 +98,8 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
    * @return the empty environment, never {@code null}
    */
   public static PipelineEnvironment empty() {
-    return new PipelineEnvironment(null, null, null, null, null, null, List.of());
+    return new PipelineEnvironment(null, null, null, null, null, null, null, null, null,
+        List.of());
   }
 
   /**
@@ -160,7 +190,50 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
       }
     }
 
+    MecabDictionary mecabDictionary = null;
+    if (config.latticeDicDir() != null) {
+      try {
+        mecabDictionary = MecabDictionary.load(config.latticeDicDir());
+        LOG.info("Loaded MeCab dictionary from {}", config.latticeDicDir());
+      } catch (IOException | RuntimeException e) {
+        warnings.add("OPENNLP_LATTICE_DIC_DIR is set to " + config.latticeDicDir()
+            + " but the dictionary could not be loaded: " + e.getMessage()
+            + "; TOKENIZER_LATTICE requests return a warning and whitespace tokens");
+        LOG.error("Could not load MeCab dictionary from {}", config.latticeDicDir(), e);
+      }
+    }
+
+    SentencePieceTokenizer sentencePieceTokenizer = null;
+    if (config.sentencePieceModelPath() != null) {
+      try {
+        sentencePieceTokenizer = SentencePieceTokenizer.load(config.sentencePieceModelPath());
+        LOG.info("Loaded SentencePiece model from {} ({} pieces)",
+            config.sentencePieceModelPath(), sentencePieceTokenizer.vocabularySize());
+      } catch (IOException | RuntimeException e) {
+        warnings.add("OPENNLP_SENTENCEPIECE_MODEL is set to " + config.sentencePieceModelPath()
+            + " but the model could not be loaded: " + e.getMessage()
+            + "; TOKENIZER_SENTENCEPIECE requests return a warning and whitespace tokens");
+        LOG.error("Could not load SentencePiece model from {}",
+            config.sentencePieceModelPath(), e);
+      }
+    }
+
+    FeedforwardDependencyModel depparseModel = null;
+    if (config.depparseModelPath() != null) {
+      try {
+        depparseModel = FeedforwardDependencyModel.load(config.depparseModelPath());
+        LOG.info("Loaded dependency-parsing model from {}", config.depparseModelPath());
+      } catch (IOException | RuntimeException e) {
+        warnings.add("OPENNLP_DEPPARSE_MODEL is set to " + config.depparseModelPath()
+            + " but the model could not be loaded: " + e.getMessage()
+            + "; dependency_parse requests return a warning and no arcs");
+        LOG.error("Could not load dependency-parsing model from {}",
+            config.depparseModelPath(), e);
+      }
+    }
+
     return new PipelineEnvironment(embeddingModel, embeddingsDir, posModel, nerModel,
-        hunspellDictionary, lemmatizer, List.copyOf(warnings));
+        hunspellDictionary, lemmatizer, mecabDictionary, sentencePieceTokenizer,
+        depparseModel, List.copyOf(warnings));
   }
 }

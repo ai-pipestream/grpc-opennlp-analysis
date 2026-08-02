@@ -15,6 +15,9 @@
   "resources": [
     { "glob": "**/*.proto" },
     { "glob": "service-version.properties" },
-    { "glob": "META-INF/maven/ai.pipestream/opennlp-api/pom.properties" }
+    { "glob": "META-INF/maven/ai.pipestream/opennlp-api/pom.properties" },
+    { "glob": "opennlp/tools/util/normalizer/*.txt" },
+    { "glob": "opennlp/tools/tokenize/uax29/*.txt" },
+    { "glob": "opennlp/geo/*.txt" }
   ]
 }

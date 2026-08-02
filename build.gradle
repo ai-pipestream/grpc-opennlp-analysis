@@ -34,6 +34,11 @@ dependencies {
     implementation libs.opennlp.model.resolver
     implementation libs.opennlp.embeddings
     implementation libs.opennlp.dl
+    // SentencePiece subword tokenizer (TOKENIZER_SENTENCEPIECE).
+    implementation libs.opennlp.subword
+    // Gazetteer implementations behind the geo annotators (bundled Natural
+    // Earth data; no external files).
+    implementation libs.opennlp.geo
 
     implementation libs.grpc.api
     implementation libs.grpc.stub

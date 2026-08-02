@@ -24,6 +24,8 @@ opennlp-tools = { module = "ai.pipestream:opennlp-tools", version.ref = "opennlp
 opennlp-model-resolver = { module = "ai.pipestream:opennlp-model-resolver", version.ref = "opennlp" }
 opennlp-embeddings = { module = "ai.pipestream:opennlp-embeddings", version.ref = "opennlp" }
 opennlp-dl = { module = "ai.pipestream:opennlp-dl", version.ref = "opennlp" }
+opennlp-subword = { module = "ai.pipestream:opennlp-subword", version.ref = "opennlp" }
+opennlp-geo = { module = "ai.pipestream:opennlp-geo", version.ref = "opennlp" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }

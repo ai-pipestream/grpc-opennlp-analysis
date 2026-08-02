@@ -17,6 +17,7 @@
 
 package ai.pipestream.opennlp.analysis;
 
+import java.util.List;
 import java.util.Objects;
 
 import ai.pipestream.opennlp.analysis.pipeline.PipelineOptions;
@@ -58,6 +59,35 @@ final class OptionsMapper {
     } else {
       termVectors = null;
     }
+    final PipelineOptions.GlossarySpec glossary;
+    if (proto.hasGlossary()) {
+      if (proto.getGlossary().getEntriesList().isEmpty()) {
+        throw Status.INVALID_ARGUMENT
+            .withDescription("glossary requires at least one entry")
+            .asRuntimeException();
+      }
+      glossary = new PipelineOptions.GlossarySpec(
+          proto.getGlossary().getEntriesList().stream()
+              .map(e -> new opennlp.tools.glossary.GlossaryEntry(e.getId(), e.getTerm()))
+              .toList(),
+          proto.getGlossary().getIgnoreCase());
+    } else {
+      glossary = null;
+    }
+    final List<PipelineOptions.RelationPatternSpec> relations;
+    if (proto.hasRelations()) {
+      if (proto.getRelations().getPatternsList().isEmpty()) {
+        throw Status.INVALID_ARGUMENT
+            .withDescription("relations requires at least one pattern")
+            .asRuntimeException();
+      }
+      relations = proto.getRelations().getPatternsList().stream()
+          .map(p -> new PipelineOptions.RelationPatternSpec(
+              p.getType(), p.getPath(), p.getTrigger().isEmpty() ? null : p.getTrigger()))
+          .toList();
+    } else {
+      relations = List.of();
+    }
     return new PipelineOptions(
         proto.getLanguage().isBlank() ? "en" : proto.getLanguage(),
         tokenizer(proto.getTokenizer()),
@@ -67,13 +97,24 @@ final class OptionsMapper {
         proto.getLemmatize(),
         stemmer,
         termVectors,
-        proto.hasEmbeddings() ? embeddingSource(proto.getEmbeddings().getSource()) : null);
+        proto.hasEmbeddings() ? embeddingSource(proto.getEmbeddings().getSource()) : null,
+        proto.getNoise(),
+        proto.getArtifacts(),
+        glossary,
+        proto.getPii(),
+        proto.getCoref(),
+        proto.getDependencyParse(),
+        proto.getGeo(),
+        relations);
   }
 
   private static PipelineOptions.Tokenizer tokenizer(AnalysisOptions.Tokenizer value) {
     return switch (value) {
       case TOKENIZER_UNSPECIFIED, TOKENIZER_WHITESPACE -> PipelineOptions.Tokenizer.WHITESPACE;
       case TOKENIZER_SIMPLE -> PipelineOptions.Tokenizer.SIMPLE;
+      case TOKENIZER_UAX29 -> PipelineOptions.Tokenizer.UAX29;
+      case TOKENIZER_LATTICE -> PipelineOptions.Tokenizer.LATTICE;
+      case TOKENIZER_SENTENCEPIECE -> PipelineOptions.Tokenizer.SENTENCEPIECE;
       case UNRECOGNIZED -> throw Status.INVALID_ARGUMENT
           .withDescription("unrecognized tokenizer value").asRuntimeException();
     };

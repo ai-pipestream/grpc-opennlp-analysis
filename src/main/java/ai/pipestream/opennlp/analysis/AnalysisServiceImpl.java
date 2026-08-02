@@ -58,7 +58,16 @@ import io.grpc.stub.StreamObserver;
 import opennlp.tools.document.Annotation;
 import opennlp.tools.document.Document;
 import opennlp.tools.document.Layers;
+import opennlp.tools.artifacts.ArtifactAnnotator;
+import opennlp.tools.coref.CorefAnnotator;
+import opennlp.tools.depparse.DependencyAnnotator;
+import opennlp.tools.geo.DocumentRegionAnnotator;
+import opennlp.tools.geo.GeocodeAnnotator;
+import opennlp.tools.glossary.GlossaryAnnotator;
 import opennlp.tools.lemmatizer.DictionaryLemmatizer;
+import opennlp.tools.noise.NoiseAnnotator;
+import opennlp.tools.pii.PiiAnnotator;
+import opennlp.tools.relation.RelationAnnotator;
 import opennlp.tools.stemmer.StemmerAnnotator;
 import opennlp.tools.termvector.TermVectorAnnotator;
 
@@ -309,6 +318,9 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         .setNerAvailable(environment.nerModel() != null)
         .setHunspellAvailable(environment.hunspellDictionary() != null)
         .setLemmatizerAvailable(environment.lemmatizer() != null)
+        .setLatticeAvailable(environment.mecabDictionary() != null)
+        .setSentencepieceAvailable(environment.sentencePieceTokenizer() != null)
+        .setDependencyParseAvailable(environment.depparseModel() != null)
         .setMaxTextBytes(config.maxTextBytes())
         .addAllStemmers(java.util.Arrays.stream(AnalysisOptions.Stemmer.values())
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED
@@ -405,6 +417,96 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
           .setSpan(span(entity.span()))
           .setType(entity.value())
           .setText(entity.span().getCoveredText(text).toString()));
+    }
+
+    for (Annotation<opennlp.tools.noise.NoiseSpan> finding
+        : document.get(NoiseAnnotator.NOISE)) {
+      response.addNoise(ai.pipestream.opennlp.analysis.v1.NoiseSpan.newBuilder()
+          .setSpan(span(finding.value().span()))
+          .setSeverity(finding.value().severity())
+          .setScore(finding.value().score()));
+    }
+
+    for (Annotation<opennlp.tools.artifacts.TextArtifact> artifact
+        : document.get(ArtifactAnnotator.ARTIFACTS)) {
+      response.addArtifacts(ai.pipestream.opennlp.analysis.v1.TextArtifact.newBuilder()
+          .setSpan(span(artifact.value().span()))
+          .setType(artifact.value().type()));
+    }
+
+    for (Annotation<opennlp.tools.glossary.GlossaryMatch> match
+        : document.get(GlossaryAnnotator.GLOSSARY)) {
+      response.addGlossaryMatches(
+          ai.pipestream.opennlp.analysis.v1.GlossaryMatch.newBuilder()
+              .setSpan(span(match.value().span()))
+              .setId(match.value().id())
+              .setTerm(match.value().term()));
+    }
+
+    for (Annotation<opennlp.tools.pii.PiiMention> mention
+        : document.get(PiiAnnotator.PII)) {
+      response.addPii(ai.pipestream.opennlp.analysis.v1.PiiMention.newBuilder()
+          .setSpan(span(mention.value().span()))
+          .setType(mention.value().type())
+          .setNormalized(mention.value().normalized()));
+    }
+
+    for (Annotation<opennlp.tools.coref.CorefMention> mention
+        : document.get(CorefAnnotator.CHAINS)) {
+      response.addCorefMentions(
+          ai.pipestream.opennlp.analysis.v1.CorefMention.newBuilder()
+              .setSpan(span(mention.span()))
+              .setChain(mention.value().chain())
+              .setKind(mention.value().kind())
+              .setEntity(mention.value().entity()));
+    }
+
+    for (Annotation<opennlp.tools.depparse.DependencyArc> arc
+        : document.get(DependencyAnnotator.DEPENDENCIES)) {
+      response.addDependencies(
+          ai.pipestream.opennlp.analysis.v1.DependencyArc.newBuilder()
+              .setSpan(span(arc.span()))
+              .setHead(arc.value().head())
+              .setDependent(arc.value().dependent())
+              .setRelation(arc.value().relation()));
+    }
+
+    for (Annotation<opennlp.tools.relation.RelationMention> relation
+        : document.get(RelationAnnotator.RELATIONS)) {
+      response.addRelations(
+          ai.pipestream.opennlp.analysis.v1.RelationMention.newBuilder()
+              .setSpan(span(relation.span()))
+              .setType(relation.value().type())
+              .setSubject(relation.value().subject())
+              .setObject(relation.value().object()));
+    }
+
+    for (Annotation<opennlp.tools.geo.GeoResolution> location
+        : document.get(GeocodeAnnotator.LOCATIONS)) {
+      final opennlp.tools.geo.GeoResolution resolution = location.value();
+      final ai.pipestream.opennlp.analysis.v1.GeoLocation.Builder out =
+          ai.pipestream.opennlp.analysis.v1.GeoLocation.newBuilder()
+              .setSpan(span(resolution.mention()))
+              .setConfidence(resolution.confidence());
+      final opennlp.tools.geo.GazetteerEntry entry = resolution.entry();
+      if (entry != null) {
+        out.setName(entry.name());
+        if (entry.countryCode() != null) {
+          out.setCountryCode(entry.countryCode());
+        }
+        if (entry.location() != null) {
+          out.setLatitude(entry.location().latitude());
+          out.setLongitude(entry.location().longitude());
+        }
+      }
+      response.addLocations(out);
+    }
+
+    for (Annotation<opennlp.tools.geo.RegionVote> vote
+        : document.get(DocumentRegionAnnotator.REGIONS)) {
+      response.addRegions(ai.pipestream.opennlp.analysis.v1.RegionVote.newBuilder()
+          .setCountryCode(vote.value().countryCode())
+          .setShare(vote.value().share()));
     }
 
     final PipelineOptions.TermVectorSpec termVectorSpec = pipeline.options().termVectors();

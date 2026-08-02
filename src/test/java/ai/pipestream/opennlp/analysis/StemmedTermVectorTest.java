@@ -73,8 +73,7 @@ class StemmedTermVectorTest {
   }
 
   @Test
-  void porterGroupsRunningRunsRunUnderOneStem() {
-    final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
+  void porterGroupsRunningRunsRunUnderOneStem() {    final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
         .setText("running runs run")
         .setOptions(AnalysisOptions.newBuilder()
             .setStemmer(AnalysisOptions.Stemmer.STEMMER_PORTER)
@@ -133,5 +132,33 @@ class StemmedTermVectorTest {
           assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT);
           assertThat(e.getStatus().getDescription()).contains("stemmer");
         });
+  }
+
+  @Test
+  void normalizedStemsAcceptTheNonOffsetAwareRungs() {
+    // NORMALIZED_STEMS runs the rung chain (plain, per token) before the
+    // stemmer. NFKC cannot report an alignment; this proves the fold-then-stem
+    // path takes the new rungs: full-width "ＦＩＳＨＩＮＧ" folds to "FISHING",
+    // case-folds to "fishing", and stems to "fish", grouping with "fishing".
+    final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
+        .setText("ＦＩＳＨＩＮＧ fishing")
+        .setOptions(AnalysisOptions.newBuilder()
+            .setStemmer(AnalysisOptions.Stemmer.STEMMER_PORTER)
+            .setTermVectors(TermVectorOptions.newBuilder()
+                .setEnabled(true)
+                .setSource(TermVectorOptions.Source.SOURCE_NORMALIZED_STEMS)
+                .setMode(TermVectorOptions.Mode.MODE_FULL)
+                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_NFKC)
+                .addRungs(
+                    TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+        .build());
+
+    assertThat(response.getTermVectorsCount()).isEqualTo(1);
+    final ai.pipestream.opennlp.analysis.v1.TermVector vector = response.getTermVectors(0);
+    assertThat(vector.getTerm()).isEqualTo("fish");
+    assertThat(vector.getFrequency()).isEqualTo(2);
+    assertThat(vector.getOccurrencesList())
+        .extracting(s -> s.getStart() + "-" + s.getEnd())
+        .containsExactly("0-7", "8-15");
   }
 }

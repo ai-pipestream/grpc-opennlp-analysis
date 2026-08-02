@@ -39,6 +39,12 @@ import java.nio.file.Path;
  * @param hunspellDicPath path to a Hunspell .dic file, or {@code null}
  * @param lemmatizerDictPath path to a lemmatizer dictionary file (token/lemma
  *                           pairs per line), or {@code null}
+ * @param latticeDicDir path to a MeCab dictionary directory for the lattice
+ *                      (CJK) tokenizer, or {@code null}
+ * @param sentencePieceModelPath path to a SentencePiece .model file, or
+ *                               {@code null}
+ * @param depparseModelPath path to a feedforward dependency-parsing model
+ *                          file, or {@code null}
  * @param streamWorkers number of analysis worker threads serving
  *                      AnalyzeStream calls; {@code 0} selects the
  *                      processor count
@@ -46,7 +52,9 @@ import java.nio.file.Path;
 public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                             Path posModelPath, Path nerModelPath,
                             Path hunspellAffPath, Path hunspellDicPath,
-                            Path lemmatizerDictPath, int streamWorkers) {
+                            Path lemmatizerDictPath, Path latticeDicDir,
+                            Path sentencePieceModelPath, Path depparseModelPath,
+                            int streamWorkers) {
 
   /** Default gRPC listen port. */
   public static final int DEFAULT_PORT = 50051;
@@ -54,13 +62,25 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
   /** Default request text size cap: 1 MiB. */
   public static final int DEFAULT_MAX_TEXT_BYTES = 1024 * 1024;
 
-  /** Auto-sized stream worker pool (the processor count). */
+  /** Without the tokenizer/parser models and with an auto-sized stream worker
+   * pool. */
   public ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path posModelPath, Path nerModelPath,
                        Path hunspellAffPath, Path hunspellDicPath,
                        Path lemmatizerDictPath) {
     this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
-        hunspellAffPath, hunspellDicPath, lemmatizerDictPath, 0);
+        hunspellAffPath, hunspellDicPath, lemmatizerDictPath, null, null, null, 0);
+  }
+
+  /** Auto-sized stream worker pool (the processor count). */
+  public ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
+                       Path posModelPath, Path nerModelPath,
+                       Path hunspellAffPath, Path hunspellDicPath,
+                       Path lemmatizerDictPath, Path latticeDicDir,
+                       Path sentencePieceModelPath, Path depparseModelPath) {
+    this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
+        hunspellAffPath, hunspellDicPath, lemmatizerDictPath, latticeDicDir,
+        sentencePieceModelPath, depparseModelPath, 0);
   }
 
   /**
@@ -97,6 +117,9 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
         path(setting("OPENNLP_HUNSPELL_AFF", "opennlp.hunspell.aff", null)),
         path(setting("OPENNLP_HUNSPELL_DIC", "opennlp.hunspell.dic", null)),
         path(setting("OPENNLP_LEMMATIZER_DICT", "opennlp.lemmatizer.dict", null)),
+        path(setting("OPENNLP_LATTICE_DIC_DIR", "opennlp.lattice.dic.dir", null)),
+        path(setting("OPENNLP_SENTENCEPIECE_MODEL", "opennlp.sentencepiece.model", null)),
+        path(setting("OPENNLP_DEPPARSE_MODEL", "opennlp.depparse.model", null)),
         Integer.parseInt(setting(
             "OPENNLP_STREAM_WORKERS", "opennlp.stream.workers", "0")));
   }

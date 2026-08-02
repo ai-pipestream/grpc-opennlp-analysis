@@ -95,14 +95,22 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `language` | string | `"en"` | Informational in the model-free pipeline; selects configured model language |
-| `tokenizer` | `Tokenizer` | `TOKENIZER_WHITESPACE` | `WHITESPACE` (split on space) or `SIMPLE` (letters/digits/punct classes). Model-free |
+| `tokenizer` | `Tokenizer` | `TOKENIZER_WHITESPACE` | `WHITESPACE` (split on space), `SIMPLE` (letters/digits/punct classes), or `UAX29` (Unicode word segmentation) — all model-free. `LATTICE` (MeCab CJK) and `SENTENCEPIECE` (subword) need server-configured files; unconfigured → whitespace fallback + warning |
 | `sentence_detection` | bool | `false` | Newline-based, model-free, exact offsets. Also scopes tokenization |
 | `pos_tags` | bool | `false` | Needs a server-configured POS model; otherwise a warning, no tags |
 | `ner` | bool | `false` | Needs a server-configured NER model; otherwise a warning, no entities |
 | `stemmer` | `Stemmer` | `STEMMER_NONE` | See stemmers below. One stem per token, parallel to `tokens` |
 | `lemmatize` | bool | `false` | Needs a server-configured lemmatizer dictionary; otherwise a warning, no lemmas |
-| `term_vectors` | `TermVectorOptions` | disabled | `enabled`, `mode` (`MODE_FULL` with occurrence spans / `MODE_SCORING_ONLY` frequency only), `rungs`, `source` (`SOURCE_TOKENS` / `SOURCE_STEMS`) |
+| `term_vectors` | `TermVectorOptions` | disabled | `enabled`, `mode` (`MODE_FULL` with occurrence spans / `MODE_SCORING_ONLY` frequency only), `rungs`, `source` (`SOURCE_TOKENS` / `SOURCE_STEMS` / `SOURCE_NORMALIZED_STEMS`) |
 | `embeddings` | `EmbeddingOptions` | disabled | `source`: `SOURCE_SENTENCES` (chunk embeddings) or `SOURCE_TOKENS` |
+| `noise` | bool | `false` | Model-free structural noise scoring (OCR damage, gibberish, base64-ish stretches) |
+| `artifacts` | bool | `false` | Model-free text-artifact flagging (replacement chars, mojibake, …). Flags only; never rewrites text |
+| `glossary` | `GlossaryOptions` | disabled | Aho-Corasick multi-word phrase matching over request-supplied entries. Model-free |
+| `pii` | bool | `false` | Email/phone/IBAN/card extraction with normalized forms. Model-free |
+| `coref` | bool | `false` | Deterministic sieve coreference. Needs POS + NER models (implies `pos_tags` + `ner`); otherwise a warning |
+| `dependency_parse` | bool | `false` | Needs a dependency-parsing model + POS model (implies `pos_tags`); otherwise a warning |
+| `relations` | `RelationOptions` | disabled | Dependency-path patterns between entities. Needs NER + depparse models; otherwise a warning |
+| `geo` | bool | `false` | Geocodes location entities against the bundled Natural Earth gazetteer. Needs an NER model (implies `ner`); otherwise a warning |
 
 `AnalyzeResponse`:
 
@@ -116,6 +124,20 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
   span in **original text coordinates**
 - `embeddings` — span + covered text + float vector, parallel to the source
   layer's annotations
+- `noise` — span + severity (`misspelled`/`damaged`/`gibberish`/`binaryish`)
+  + score in (0, 1]
+- `artifacts` — span + type (`replacement`, `control`, `mojibake`, …)
+- `glossary_matches` — span + entry id + registered term, leftmost-longest,
+  non-overlapping
+- `pii` — span + type (`email`/`phone`/`iban`/`card`) + normalized form
+- `coref_mentions` — span + chain id + kind (`entity`/`pronoun`) + entity
+  index (−1 for pronouns)
+- `dependencies` — one arc per token: head/dependent token indices + relation
+  label; the root arc has head −1
+- `relations` — span + pattern type + subject/object entity indices
+- `locations` — geocoded entity: span + gazetteer name + country code +
+  coordinates + confidence
+- `regions` — document-level country votes (country code + share)
 - `warnings` — requested-but-unavailable features (no embedding model loaded,
   no POS/NER model configured, …). Requests never fail just because an
   optional model-backed feature is unavailable.
@@ -214,31 +236,42 @@ Unconfigured → warning, no lemmas.
 
 ### Normalizer rungs
 
-`rungs` on `TermVectorOptions` select the aligned normalizer chain used for
-term identity (token-sourced vectors only): `NORMALIZER_RUNG_STRIP_INVISIBLE`,
+`rungs` on `TermVectorOptions` select the normalizer chain used for term
+identity (token-sourced vectors only): `NORMALIZER_RUNG_STRIP_INVISIBLE`,
 `..._WHITESPACE`, `..._DASHES`, `..._QUOTES`, `..._DIGITS`,
 `..._FULL_CASE_FOLD`, `..._ELLIPSIS`, `..._BULLETS`,
 `..._EMOJI_TO_EMOTICON`, `..._EMOTICON_TO_EMOJI`, `..._GERMAN_UMLAUT`
-(umlaut/sharp-s expansion: `ä`→`ae`, `ß`→`ss`). Rungs apply in the OpenNLP
-builder's fixed order regardless of request order. When `enabled` is set
-with no rungs, the default chain is
+(umlaut/sharp-s expansion: `ä`→`ae`, `ß`→`ss`), plus `..._NFKC` / `..._NFC`
+(Unicode normalization), `..._CONFUSABLE_SKELETON` (UTS #39 homoglyph
+folding), `..._ACCENT_FOLD`, `..._CASE_FOLD` (simple fold; keeps `ß`),
+`..._LINE_BREAK_PRESERVING_WHITESPACE`, `..._URL`, `..._NUMBER`,
+`..._SOCIAL_MEDIA`, and `..._SHRINK` (repeated-character runs shrink to two).
+Rungs apply in the OpenNLP builder's fixed order regardless of request order.
+When `enabled` is set with no rungs, the default chain is
 `STRIP_INVISIBLE + WHITESPACE + FULL_CASE_FOLD` — the chain BM25 consumers
-usually want. Every rung is offset-aware: normalization never breaks
-original-text offsets.
+usually want. Normalization never breaks original-text offsets: rungs that
+can report a character alignment compose into the aligned whole-document
+chain; the JDK/regex-backed rungs (NFKC, NFC, confusable skeleton, accent and
+case fold, URL, number, social media, shrink) cannot and are applied per
+token instead — occurrence spans are the token spans either way.
 
 ### `GetCapabilities(GetCapabilitiesRequest) → GetCapabilitiesResponse`
 
 Reports what this server instance can actually serve: OpenNLP and service
 versions, `embeddings_enabled` + model dir, POS/NER availability,
 `hunspell_available` and `lemmatizer_available` (dictionary configured or
-not), the max text size, and the supported stemmer/rung/tokenizer option
-names.
+not), `lattice_available`, `sentencepiece_available`, and
+`dependency_parse_available` (tokenizer/parser files configured or not), the
+max text size, and the supported stemmer/rung/tokenizer option names. Noise
+scoring, artifact flagging, glossary matching, and PII extraction are
+model-free and always available, so they carry no availability flags.
 
 ## Model-free by default
 
 The default pipeline needs **zero downloads and zero model files**:
-whitespace/simple tokenizers, newline sentence detection, algorithmic
-stemmers, aligned term vectors. Model-backed features are opt-in via server
+whitespace/simple/UAX29 tokenizers, newline sentence detection, algorithmic
+stemmers, term vectors, noise scoring, artifact flagging, glossary matching,
+and PII extraction. Model-backed features are opt-in via server
 configuration and are never downloaded at request time:
 
 - **Embeddings** — set `OPENNLP_EMBEDDINGS_DIR` to a static embedding model
@@ -258,6 +291,19 @@ configuration and are never downloaded at request time:
   `STEMMER_HUNSPELL` per request.
 - **Dictionary lemmatization** — set `OPENNLP_LEMMATIZER_DICT` to a
   `word<TAB>postag<TAB>lemma` file, then set `lemmatize: true` per request.
+- **Lattice (CJK) tokenizer** — set `OPENNLP_LATTICE_DIC_DIR` to a MeCab
+  dictionary directory (IPADIC, UniDic, …), then select `TOKENIZER_LATTICE`.
+  Unconfigured requests fall back to whitespace tokenization with a warning.
+- **SentencePiece tokenizer** — set `OPENNLP_SENTENCEPIECE_MODEL` to a trained
+  `.model` file, then select `TOKENIZER_SENTENCEPIECE`. Same fallback rule.
+- **Dependency parsing** — set `OPENNLP_DEPPARSE_MODEL` to a feedforward
+  dependency model file, then set `dependency_parse: true`. Implies
+  `pos_tags`; relations build on it.
+- **Coreference** — `coref: true` needs POS + NER models (deterministic
+  sieves; no coref model). Implies `pos_tags` + `ner`.
+- **Geocoding** — `geo: true` needs an NER model; location entities resolve
+  against the bundled Natural Earth populated-places gazetteer (no external
+  data files).
 
 ## Configuration
 
@@ -271,6 +317,9 @@ configuration and are never downloaded at request time:
 | Hunspell .aff file | `OPENNLP_HUNSPELL_AFF` | `opennlp.hunspell.aff` | unset (unavailable) |
 | Hunspell .dic file | `OPENNLP_HUNSPELL_DIC` | `opennlp.hunspell.dic` | unset (unavailable) |
 | Lemmatizer dictionary | `OPENNLP_LEMMATIZER_DICT` | `opennlp.lemmatizer.dict` | unset (unavailable) |
+| MeCab dictionary dir | `OPENNLP_LATTICE_DIC_DIR` | `opennlp.lattice.dic.dir` | unset (LATTICE falls back to whitespace) |
+| SentencePiece model file | `OPENNLP_SENTENCEPIECE_MODEL` | `opennlp.sentencepiece.model` | unset (SENTENCEPIECE falls back to whitespace) |
+| Dependency model file | `OPENNLP_DEPPARSE_MODEL` | `opennlp.depparse.model` | unset (unavailable) |
 | AnalyzeStream workers | `OPENNLP_STREAM_WORKERS` | `opennlp.stream.workers` | `0` (processor count) |
 
 The server exposes the gRPC **health service** (`""` and the fully-qualified

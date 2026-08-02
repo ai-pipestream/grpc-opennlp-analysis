@@ -108,8 +108,32 @@ class AnalysisServiceImplTest {
   }
 
   @Test
-  void scoringOnlyOmitsOccurrencesButKeepsFrequencies() {
+  void mixedRungChainWithANonOffsetAwareRungWorksOverTheWire() {
+    // NFKC (full-width fold) cannot report an alignment, so this chain runs
+    // through the per-token annotator; FULL_CASE_FOLD composes with it. Both
+    // surface forms collapse to one term with original-text occurrence spans.
     final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
+        .setText("ＣＯＵＲＴ court")
+        .setOptions(AnalysisOptions.newBuilder()
+            .setTermVectors(TermVectorOptions.newBuilder()
+                .setEnabled(true)
+                .setMode(TermVectorOptions.Mode.MODE_FULL)
+                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_NFKC)
+                .addRungs(
+                    TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+        .build());
+
+    assertThat(response.getTermVectorsCount()).isEqualTo(1);
+    final ai.pipestream.opennlp.analysis.v1.TermVector vector = response.getTermVectors(0);
+    assertThat(vector.getTerm()).isEqualTo("court");
+    assertThat(vector.getFrequency()).isEqualTo(2);
+    assertThat(vector.getOccurrencesList())
+        .extracting(s -> s.getStart() + "-" + s.getEnd())
+        .containsExactly("0-5", "6-11");
+  }
+
+  @Test
+  void scoringOnlyOmitsOccurrencesButKeepsFrequencies() {    final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
         .setText("Groß  groß  GROSS")
         .setOptions(AnalysisOptions.newBuilder()
             .setTermVectors(TermVectorOptions.newBuilder()
@@ -231,8 +255,18 @@ class AnalysisServiceImplTest {
     assertThat(capabilities.getNormalizerRungsList())
         .contains("NORMALIZER_RUNG_FULL_CASE_FOLD", "NORMALIZER_RUNG_GERMAN_UMLAUT",
             "NORMALIZER_RUNG_ELLIPSIS", "NORMALIZER_RUNG_BULLETS",
-            "NORMALIZER_RUNG_EMOJI_TO_EMOTICON", "NORMALIZER_RUNG_EMOTICON_TO_EMOJI");
+            "NORMALIZER_RUNG_EMOJI_TO_EMOTICON", "NORMALIZER_RUNG_EMOTICON_TO_EMOJI",
+            "NORMALIZER_RUNG_NFKC", "NORMALIZER_RUNG_NFC",
+            "NORMALIZER_RUNG_CONFUSABLE_SKELETON", "NORMALIZER_RUNG_ACCENT_FOLD",
+            "NORMALIZER_RUNG_CASE_FOLD",
+            "NORMALIZER_RUNG_LINE_BREAK_PRESERVING_WHITESPACE",
+            "NORMALIZER_RUNG_URL", "NORMALIZER_RUNG_NUMBER",
+            "NORMALIZER_RUNG_SOCIAL_MEDIA", "NORMALIZER_RUNG_SHRINK");
     assertThat(capabilities.getTokenizersList())
-        .containsExactlyInAnyOrder("TOKENIZER_WHITESPACE", "TOKENIZER_SIMPLE");
+        .containsExactlyInAnyOrder("TOKENIZER_WHITESPACE", "TOKENIZER_SIMPLE",
+            "TOKENIZER_UAX29", "TOKENIZER_LATTICE", "TOKENIZER_SENTENCEPIECE");
+    assertThat(capabilities.getLatticeAvailable()).isFalse();
+    assertThat(capabilities.getSentencepieceAvailable()).isFalse();
+    assertThat(capabilities.getDependencyParseAvailable()).isFalse();
   }
 }
