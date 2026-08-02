@@ -423,9 +423,9 @@ message TermVectorOptions {
   // character alignment compose into the aligned whole-document chain; steps
   // backed by java.text.Normalizer, JDK case mapping, or regexes (NFKC, NFC,
   // CONFUSABLE_SKELETON, ACCENT_FOLD, CASE_FOLD, URL, NUMBER, SOCIAL_MEDIA,
-  // SHRINK) and whole-token rewrites (SYMBOL_JOINER) are applied per token
-  // instead — occurrence spans are the token spans either way, so both paths
-  // return original-text offsets.
+  // SHRINK), whole-token rewrites (SYMBOL_JOINER), and spell correction
+  // (SPELLCHECK) are applied per token instead — occurrence spans are the
+  // token spans either way, so both paths return original-text offsets.
   enum NormalizerStep {
     // Unused zero value; ignored when present.
     NORMALIZER_STEP_UNSPECIFIED = 0;
@@ -509,6 +509,16 @@ message TermVectorOptions {
     // is rewritten; symbols embedded in a larger token ("R&D", "AT&T") are
     // left alone.
     NORMALIZER_STEP_SYMBOL_JOINER = 22;
+
+    // SymSpell spell correction of each token ("dargons" -> "dragons"),
+    // aimed at OCR-damaged corpora. Requires the server to be configured
+    // with a spell-check model (OPENNLP_SPELLCHECK_MODEL); when none is
+    // configured the request still succeeds with the step skipped and a
+    // warning is returned. Correction re-applies the token's casing pattern
+    // and skips numbers, URLs, and short tokens. Handle deliberately: it
+    // changes term identity, so it belongs in a parallel column's spec,
+    // never silently in the body's.
+    NORMALIZER_STEP_SPELLCHECK = 23;
   }
 
   // Which layer supplies term identity. This choice decides what a "term" is:
@@ -1017,4 +1027,8 @@ message GetCapabilitiesResponse {
   // is always true; it exists so a client compiled against an older contract
   // can tell the feature exists on this server.
   bool dual_term_identity_available = 17;
+
+  // Whether a SymSpell spell-check model is configured and
+  // NORMALIZER_STEP_SPELLCHECK requests are served without skipping the step.
+  bool spellcheck_available = 18;
 }

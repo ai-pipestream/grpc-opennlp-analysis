@@ -34,6 +34,8 @@ import opennlp.tools.namefind.TokenNameFinderModel;
 import opennlp.tools.postag.POSModel;
 import opennlp.tools.stemmer.hunspell.HunspellDictionary;
 import opennlp.tools.tokenize.lattice.MecabDictionary;
+import opennlp.spellcheck.dictionary.SymSpellModel;
+import opennlp.spellcheck.dictionary.SymSpellModels;
 import opennlp.wordnet.MorphyExceptions;
 import opennlp.wordnet.MorphyLemmatizer;
 import opennlp.wordnet.WndbReader;
@@ -66,6 +68,9 @@ import opennlp.wordnet.WndbReader;
  *                               TOKENIZER_SENTENCEPIECE is unavailable
  * @param depparseModel the feedforward dependency-parsing model, or
  *                      {@code null} when dependency parsing is unavailable
+ * @param spellcheckModel the SymSpell spell-check model behind
+ *                        NORMALIZER_STEP_SPELLCHECK, or {@code null} when
+ *                        spell correction is unavailable
  * @param loadWarnings problems encountered while loading configured models
  */
 public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
@@ -77,6 +82,7 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                                   MecabDictionary mecabDictionary,
                                   SentencePieceTokenizer sentencePieceTokenizer,
                                   FeedforwardDependencyModel depparseModel,
+                                  SymSpellModel spellcheckModel,
                                   List<String> loadWarnings) {
 
   private static final Logger LOG = LoggerFactory.getLogger(PipelineEnvironment.class);
@@ -93,7 +99,7 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                              Lemmatizer lemmatizer,
                              List<String> loadWarnings) {
     this(embeddingModel, embeddingsDirDescription, posModel, nerModel,
-        hunspellDictionary, lemmatizer, null, null, null, loadWarnings);
+        hunspellDictionary, lemmatizer, null, null, null, null, loadWarnings);
   }
 
   /**
@@ -105,7 +111,7 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
    */
   public static PipelineEnvironment empty() {
     return new PipelineEnvironment(null, null, null, null, null, null, null, null, null,
-        List.of());
+        null, List.of());
   }
 
   /**
@@ -258,8 +264,27 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
       }
     }
 
+    SymSpellModel spellcheckModel = null;
+    if (config.spellcheckModelPath() != null) {
+      try {
+        final java.io.InputStream in = java.nio.file.Files.newInputStream(
+            config.spellcheckModelPath());
+        try (in) {
+          spellcheckModel = SymSpellModels.deserialize(in);
+        }
+        LOG.info("Loaded spell-check model from {} ({} unigrams)",
+            config.spellcheckModelPath(), spellcheckModel.unigrams().size());
+      } catch (IOException | RuntimeException e) {
+        warnings.add("OPENNLP_SPELLCHECK_MODEL is set to " + config.spellcheckModelPath()
+            + " but the spell-check model could not be loaded: " + e.getMessage()
+            + "; NORMALIZER_STEP_SPELLCHECK requests return a warning and no correction");
+        LOG.error("Could not load spell-check model from {}",
+            config.spellcheckModelPath(), e);
+      }
+    }
+
     return new PipelineEnvironment(embeddingModel, embeddingsDir, posModel, nerModel,
         hunspellDictionary, lemmatizer, mecabDictionary, sentencePieceTokenizer,
-        depparseModel, List.copyOf(warnings));
+        depparseModel, spellcheckModel, List.copyOf(warnings));
   }
 }

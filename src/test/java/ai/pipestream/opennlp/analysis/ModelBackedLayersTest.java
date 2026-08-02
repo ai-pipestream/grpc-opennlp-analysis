@@ -75,10 +75,10 @@ class ModelBackedLayersTest {
     final FeedforwardDependencyModel dependencyModel = TestModels.trainDependencyModel();
 
     final PipelineEnvironment environment = new PipelineEnvironment(
-        null, null, posModel, personNer, null, null, null, null, dependencyModel,
+        null, null, posModel, personNer, null, null, null, null, dependencyModel, null,
         List.of());
     final PipelineEnvironment geoEnvironment = new PipelineEnvironment(
-        null, null, posModel, locationNer, null, null, null, null, null, List.of());
+        null, null, posModel, locationNer, null, null, null, null, null, null, List.of());
 
     final String name = InProcessServerBuilder.generateName();
     server = InProcessServerBuilder.forName(name).directExecutor()

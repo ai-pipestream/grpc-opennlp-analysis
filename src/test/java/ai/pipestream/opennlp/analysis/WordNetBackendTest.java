@@ -58,7 +58,7 @@ class WordNetBackendTest {
 
   private static ServiceConfig configWithWordNet(Path wordnetDir) {
     return new ServiceConfig(0, 1024 * 1024, null, null, null, null, null, null,
-        null, null, null, wordnetDir, 0);
+        null, null, null, wordnetDir, null, 0);
   }
 
   @BeforeEach
@@ -94,7 +94,7 @@ class WordNetBackendTest {
     final Path flatDict = tempDir.resolve("lemmas.tsv");
     Files.writeString(flatDict, "dogs\t\tdog\n");
     final ServiceConfig both = new ServiceConfig(0, 1024 * 1024, null, null, null,
-        null, null, flatDict, null, null, null, wordnetDir(), 0);
+        null, null, flatDict, null, null, null, wordnetDir(), null, 0);
 
     final PipelineEnvironment environment = PipelineEnvironment.load(both);
 

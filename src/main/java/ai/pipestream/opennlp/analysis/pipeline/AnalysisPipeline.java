@@ -23,6 +23,7 @@ import java.util.Set;
 
 import opennlp.geo.BundledGazetteer;
 import opennlp.geo.PopulationPriorGeocoder;
+import opennlp.spellcheck.normalizer.SpellCheckingCharSequenceNormalizer;
 import opennlp.tools.artifacts.ArtifactAnnotator;
 import opennlp.tools.assets.AssetAnnotator;
 import opennlp.tools.coref.CorefAnnotator;
@@ -236,6 +237,23 @@ public final class AnalysisPipeline {
           options.glossary().entries(), options.glossary().ignoreCase())));
     }
 
+    // Spell correction is a model-gated step: it joins the chain only when a
+    // SymSpell model is configured, and warns instead when a request asks for
+    // it without one. One normalizer instance serves every chain this
+    // pipeline builds (folded, cased, and the stemmer decorator all agree on
+    // what a corrected token is).
+    SpellCheckingCharSequenceNormalizer spellcheck = null;
+    if (options.termVectors() != null
+        && options.termVectors().steps().contains(PipelineOptions.NormalizerStep.SPELLCHECK)) {
+      if (environment.spellcheckModel() != null) {
+        spellcheck = new SpellCheckingCharSequenceNormalizer(environment.spellcheckModel());
+      } else {
+        warnings.add("NORMALIZER_STEP_SPELLCHECK was requested but no spell-check "
+            + "model is configured (OPENNLP_SPELLCHECK_MODEL); the step is skipped "
+            + "for this pipeline");
+      }
+    }
+
     Stemmer baseStemmer = null;
     if (options.stemmer() != PipelineOptions.Stemmer.NONE) {
       baseStemmer = stemmer(options.stemmer(), environment, warnings);
@@ -248,7 +266,7 @@ public final class AnalysisPipeline {
           && options.termVectors() != null
           && options.termVectors().source()
               == PipelineOptions.TermVectorSource.NORMALIZED_STEMS) {
-        stemmer = normalizingStemmer(stemmer, options.termVectors().steps());
+        stemmer = normalizingStemmer(stemmer, options.termVectors().steps(), spellcheck);
       }
       if (stemmer != null) {
         builder.add(new StemmerAnnotator(stemmer));
@@ -273,10 +291,10 @@ public final class AnalysisPipeline {
         // baseStemmer is null here when the dictionary is missing; that case
         // already warned above, and cased_term_vectors stays as empty as stems.
         if (baseStemmer != null) {
-          casedStemmer = normalizingStemmer(baseStemmer, dualSpec.casedSteps());
+          casedStemmer = normalizingStemmer(baseStemmer, dualSpec.casedSteps(), spellcheck);
         }
       } else {
-        casedNormalizer = normalizerChain(dualSpec.casedSteps());
+        casedNormalizer = normalizerChain(dualSpec.casedSteps(), spellcheck);
       }
     }
 
@@ -357,7 +375,7 @@ public final class AnalysisPipeline {
       if (spec.steps().stream().allMatch(PipelineOptions.NormalizerStep::isOffsetAware)) {
         builder.add(new TermVectorAnnotator(alignedNormalizer(spec.steps()), mode));
       } else {
-        builder.add(new PerTokenTermVectorAnnotator(normalizerChain(spec.steps()), mode));
+        builder.add(new PerTokenTermVectorAnnotator(normalizerChain(spec.steps(), spellcheck), mode));
       }
     }
 
@@ -448,29 +466,33 @@ public final class AnalysisPipeline {
    * differ only in whether the stemmer then applies.
    */
   private static Stemmer normalizingStemmer(
-      Stemmer delegate, List<PipelineOptions.NormalizerStep> steps) {
-    final CharSequenceNormalizer normalizer = normalizerChain(steps);
+      Stemmer delegate, List<PipelineOptions.NormalizerStep> steps,
+      CharSequenceNormalizer spellcheck) {
+    final CharSequenceNormalizer normalizer = normalizerChain(steps, spellcheck);
     return text -> delegate.stem(normalizer.normalize(text));
   }
 
   /** The step chain as a plain normalizer (no offset alignment needed: the
    * token's offsets come from the tokenizer, not from its stemmed form). */
   private static CharSequenceNormalizer normalizerChain(
-      List<PipelineOptions.NormalizerStep> steps) {
-    return normalizerBuilder(steps).build();
+      List<PipelineOptions.NormalizerStep> steps, CharSequenceNormalizer spellcheck) {
+    return normalizerBuilder(steps, spellcheck).build();
   }
 
   private static OffsetAwareNormalizer alignedNormalizer(
       List<PipelineOptions.NormalizerStep> steps) {
-    return normalizerBuilder(steps).buildAligned();
+    return normalizerBuilder(steps, null).buildAligned();
   }
 
   /** Populates a normalizer builder from the step list; the two build
    * methods (aligned for term vectors, plain for the stemmer decorator)
    * must see the SAME chain or the two sources would disagree on
-   * identity. */
+   * identity. {@code spellcheck} is the model-gated correction step, or
+   * {@code null} when unavailable or unrequested; it is never part of an
+   * aligned chain (it cannot report an alignment, so a chain containing it
+   * always builds plain). */
   private static TextNormalizer.Builder normalizerBuilder(
-      List<PipelineOptions.NormalizerStep> steps) {
+      List<PipelineOptions.NormalizerStep> steps, CharSequenceNormalizer spellcheck) {
     final TextNormalizer.Builder builder = TextNormalizer.builder();
     // Compatibility normalization first: it rewrites the characters every
     // later step matches on (full-width forms, ligatures, …).
@@ -514,6 +536,13 @@ public final class AnalysisPipeline {
       // Whole-token symbol expansion ("&" -> "and"); runs before the folding
       // steps so the spelled-out word folds and stems like any other token.
       builder.with(SymbolJoinerCharSequenceNormalizer.getInstance());
+    }
+    if (spellcheck != null
+        && steps.contains(PipelineOptions.NormalizerStep.SPELLCHECK)) {
+      // After the noise-removing rewrites, before the folds: the corrector
+      // sees clean tokens and re-applies their casing pattern, which the
+      // folding steps then treat like any other casing.
+      builder.with(spellcheck);
     }
     if (steps.contains(PipelineOptions.NormalizerStep.CONFUSABLE_SKELETON)) {
       builder.with(ConfusableSkeletonCharSequenceNormalizer.getInstance());

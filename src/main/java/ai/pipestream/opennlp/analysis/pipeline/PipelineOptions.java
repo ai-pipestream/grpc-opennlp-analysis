@@ -255,7 +255,10 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     /** Collapses whitespace and shrinks repeated-character runs to two. */
     SHRINK,
     /** Spells out a whole-token symbol joiner ("&amp;" -&gt; "and"). */
-    SYMBOL_JOINER;
+    SYMBOL_JOINER,
+    /** SymSpell spell correction; needs a server-configured model
+     * (OPENNLP_SPELLCHECK_MODEL). */
+    SPELLCHECK;
 
     /**
      * Whether this step can report a character alignment and so compose into
@@ -268,7 +271,7 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     public boolean isOffsetAware() {
       return switch (this) {
         case NFKC, NFC, CONFUSABLE_SKELETON, ACCENT_FOLD, CASE_FOLD, URL, NUMBER,
-            SOCIAL_MEDIA, SHRINK, SYMBOL_JOINER -> false;
+            SOCIAL_MEDIA, SHRINK, SYMBOL_JOINER, SPELLCHECK -> false;
         default -> true;
       };
     }

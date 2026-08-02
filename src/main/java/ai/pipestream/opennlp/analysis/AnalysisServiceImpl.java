@@ -322,6 +322,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         .setSentencepieceAvailable(environment.sentencePieceTokenizer() != null)
         .setDependencyParseAvailable(environment.depparseModel() != null)
         .setDualTermIdentityAvailable(true)
+        .setSpellcheckAvailable(environment.spellcheckModel() != null)
         .setMaxTextBytes(config.maxTextBytes())
         .addAllStemmers(java.util.Arrays.stream(AnalysisOptions.Stemmer.values())
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED

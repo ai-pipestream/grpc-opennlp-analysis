@@ -42,6 +42,9 @@ dependencies {
     // WordNet lexicon + Morphy lemmatizer (the OPENNLP_WORDNET_DIR lemmatizer
     // backend).
     implementation libs.opennlp.wordnet
+    // SymSpell spell correction (NORMALIZER_STEP_SPELLCHECK, behind
+    // OPENNLP_SPELLCHECK_MODEL).
+    implementation libs.opennlp.spellcheck
 
     implementation libs.grpc.api
     implementation libs.grpc.stub
