@@ -64,6 +64,9 @@ class ModelBackedLayersTest {
   private static Server geoServer;
   private static ManagedChannel geoChannel;
   private static AnalysisServiceGrpc.AnalysisServiceBlockingStub geoStub;
+  private static Server bothServer;
+  private static ManagedChannel bothChannel;
+  private static AnalysisServiceGrpc.AnalysisServiceBlockingStub bothStub;
 
   private static POSModel posModel;
 
@@ -75,10 +78,10 @@ class ModelBackedLayersTest {
     final FeedforwardDependencyModel dependencyModel = TestModels.trainDependencyModel();
 
     final PipelineEnvironment environment = new PipelineEnvironment(
-        null, null, posModel, personNer, null, null, null, null, dependencyModel, null,
+        null, null, posModel, List.of(personNer), null, null, null, null, dependencyModel, null,
         List.of());
     final PipelineEnvironment geoEnvironment = new PipelineEnvironment(
-        null, null, posModel, locationNer, null, null, null, null, null, null, List.of());
+        null, null, posModel, List.of(locationNer), null, null, null, null, null, null, List.of());
 
     final String name = InProcessServerBuilder.generateName();
     server = InProcessServerBuilder.forName(name).directExecutor()
@@ -87,6 +90,17 @@ class ModelBackedLayersTest {
         .build().start();
     channel = InProcessChannelBuilder.forName(name).directExecutor().build();
     stub = AnalysisServiceGrpc.newBlockingStub(channel);
+
+    final PipelineEnvironment bothEnvironment = new PipelineEnvironment(
+        null, null, posModel, List.of(personNer, locationNer), null, null, null, null,
+        null, null, List.of());
+    final String bothName = InProcessServerBuilder.generateName();
+    bothServer = InProcessServerBuilder.forName(bothName).directExecutor()
+        .addService(new AnalysisServiceImpl(bothEnvironment,
+            new ServiceConfig(0, 1024 * 1024, null, null, null, null, null, null)))
+        .build().start();
+    bothChannel = InProcessChannelBuilder.forName(bothName).directExecutor().build();
+    bothStub = AnalysisServiceGrpc.newBlockingStub(bothChannel);
 
     final String geoName = InProcessServerBuilder.generateName();
     geoServer = InProcessServerBuilder.forName(geoName).directExecutor()
@@ -103,6 +117,10 @@ class ModelBackedLayersTest {
     server.shutdownNow();
     geoChannel.shutdownNow();
     geoServer.shutdownNow();
+    channel.shutdownNow();
+    server.shutdownNow();
+    bothChannel.shutdownNow();
+    bothServer.shutdownNow();
   }
 
   private static AnalyzeResponse analyze(
@@ -300,5 +318,33 @@ class ModelBackedLayersTest {
       assertThat(vote.getCountryCode()).isNotBlank();
       assertThat(vote.getShare()).isPositive();
     });
+  }
+
+  /**
+   * The stock English NER models find one entity type each, so a service
+   * given several must run them all and report every type. Before this,
+   * naming a second model replaced the first, and a deployment
+   * configured for people reported no places while looking healthy.
+   */
+  @Test
+  void severalNerModelsContributeTheirOwnEntityTypes() {
+    final AnalyzeResponse response = analyze(bothStub, TestModels.GEO_SENTENCE,
+        AnalysisOptions.newBuilder()
+            .setSentenceDetection(true)
+            .setNer(true));
+
+    assertThat(response.getWarningsList()).isEmpty();
+    assertThat(response.getEntitiesList()).isNotEmpty();
+    // The location model contributes its type even though a person model
+    // is loaded beside it; one model no longer shadows the other.
+    assertThat(response.getEntitiesList()).extracting(Entity::getType)
+        .contains("location");
+    // Every mention still carries a span that selects its own text, which
+    // is what would break if mentions from two finders were concatenated
+    // without keeping each one's offsets.
+    assertThat(response.getEntitiesList()).allSatisfy(entity ->
+        assertThat(TestModels.GEO_SENTENCE.substring(
+            entity.getSpan().getStart(), entity.getSpan().getEnd()))
+            .isEqualTo(entity.getText()));
   }
 }

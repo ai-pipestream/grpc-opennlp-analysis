@@ -57,7 +57,7 @@ import opennlp.wordnet.WndbReader;
  * @param embeddingsDirDescription description of the directory the embedding
  *                                 model was loaded from, or {@code null}
  * @param posModel the POS model, or {@code null} when POS is unavailable
- * @param nerModel the NER model, or {@code null} when NER is unavailable
+ * @param nerModels the NER models, one per entity type; empty when NER is unavailable
  * @param hunspellDictionary the Hunspell dictionary, or {@code null} when
  *                           STEMMER_HUNSPELL is unavailable
  * @param lemmatizer the lemmatizer backend (WordNet Morphy when
@@ -81,7 +81,7 @@ import opennlp.wordnet.WndbReader;
 public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                                   String embeddingsDirDescription,
                                   POSModel posModel,
-                                  TokenNameFinderModel nerModel,
+                                  List<TokenNameFinderModel> nerModels,
                                   HunspellDictionary hunspellDictionary,
                                   Lemmatizer lemmatizer,
                                   MecabDictionary mecabDictionary,
@@ -89,6 +89,12 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                                   FeedforwardDependencyModel depparseModel,
                                   SymSpellModel spellcheckModel,
                                   List<String> loadWarnings) {
+
+  /** Same null-means-none normalization as ServiceConfig's model list. */
+  public PipelineEnvironment {
+    nerModels = nerModels == null ? List.of() : List.copyOf(nerModels);
+  }
+
 
   private static final Logger LOG = LoggerFactory.getLogger(PipelineEnvironment.class);
 
@@ -99,11 +105,11 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
   public PipelineEnvironment(StaticEmbeddingModel embeddingModel,
                              String embeddingsDirDescription,
                              POSModel posModel,
-                             TokenNameFinderModel nerModel,
+                             List<TokenNameFinderModel> nerModels,
                              HunspellDictionary hunspellDictionary,
                              Lemmatizer lemmatizer,
                              List<String> loadWarnings) {
-    this(embeddingModel, embeddingsDirDescription, posModel, nerModel,
+    this(embeddingModel, embeddingsDirDescription, posModel, nerModels,
         hunspellDictionary, lemmatizer, null, null, null, null, loadWarnings);
   }
 
@@ -162,16 +168,21 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
       }
     }
 
-    TokenNameFinderModel nerModel = null;
-    if (config.nerModelPath() != null) {
+    // One model per entity type is how the stock English NER models ship,
+    // so a deployment naming only one of them finds only that type. Each
+    // is loaded independently: a bad path costs its own type and a
+    // warning naming it, rather than taking the working models down with
+    // it.
+    final List<TokenNameFinderModel> nerModels = new ArrayList<>();
+    for (final Path nerModelPath : config.nerModelPaths()) {
       try {
-        nerModel = new TokenNameFinderModel(config.nerModelPath());
-        LOG.info("Loaded NER model from {}", config.nerModelPath());
+        nerModels.add(new TokenNameFinderModel(nerModelPath));
+        LOG.info("Loaded NER model from {}", nerModelPath);
       } catch (IOException | RuntimeException e) {
-        warnings.add("OPENNLP_NER_MODEL is set to " + config.nerModelPath()
-            + " but the model could not be loaded: " + e.getMessage()
-            + "; ner requests return a warning and no entities");
-        LOG.error("Could not load NER model from {}", config.nerModelPath(), e);
+        warnings.add("OPENNLP_NER_MODEL names " + nerModelPath
+            + " but that model could not be loaded: " + e.getMessage()
+            + "; the entity types it provides stay empty");
+        LOG.error("Could not load NER model from {}", nerModelPath, e);
       }
     }
 
@@ -329,7 +340,7 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
       }
     }
 
-    return new PipelineEnvironment(embeddingModel, embeddingsDir, posModel, nerModel,
+    return new PipelineEnvironment(embeddingModel, embeddingsDir, posModel, nerModels,
         hunspellDictionary, lemmatizer, mecabDictionary, sentencePieceTokenizer,
         depparseModel, spellcheckModel, List.copyOf(warnings));
   }

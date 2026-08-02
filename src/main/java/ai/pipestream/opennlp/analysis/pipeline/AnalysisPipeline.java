@@ -44,6 +44,10 @@ import opennlp.tools.geo.GeocodeAnnotator;
 import opennlp.tools.glossary.AhoCorasickGlossaryMatcher;
 import opennlp.tools.glossary.GlossaryAnnotator;
 import opennlp.tools.namefind.NameFinderME;
+import opennlp.tools.namefind.TokenNameFinderModel;
+import opennlp.tools.util.Span;
+import opennlp.tools.namefind.TokenNameFinder;
+import java.util.Arrays;
 import opennlp.tools.noise.NoiseAnnotator;
 import opennlp.tools.pii.CursorPiiExtractor;
 import opennlp.tools.pii.PiiAnnotator;
@@ -151,7 +155,7 @@ public final class AnalysisPipeline {
     // never to a runtime model download. Computed first: the effective POS
     // decision below implies sentence detection, which is assembled early.
     final boolean canPos = environment.posModel() != null;
-    final boolean canNer = environment.nerModel() != null;
+    final boolean canNer = !environment.nerModels().isEmpty();
     final boolean canDepparse = environment.depparseModel() != null;
 
     boolean dependencyParse = options.dependencyParse() || !options.relations().isEmpty();
@@ -339,7 +343,7 @@ public final class AnalysisPipeline {
         // ThreadSafeNameFinderME is deprecated since 3.0.0 rather than
         // recommended. The per-call clearAdaptiveData() this annotator
         // makes therefore clears per-thread state, not a shared map.
-        builder.add(new NameFinderAnnotator(new NameFinderME(environment.nerModel())));
+        builder.add(new NameFinderAnnotator(MultiModelNameFinder.over(environment.nerModels())));
       } else if (options.ner()) {
         warnings.add("ner was requested but no NER model is configured "
             + "(OPENNLP_NER_MODEL); entities stays empty");
@@ -710,6 +714,42 @@ public final class AnalysisPipeline {
   }
 
   /** Serializes a model-based annotator whose implementation is not thread-safe. */
+  /**
+   * Every configured name finder behind one {@link TokenNameFinder}.
+   *
+   * <p>The stock English models find one entity type each, so finding
+   * people and places and organizations means running several finders
+   * over the same tokens and concatenating what they return. Mentions
+   * from different models may overlap, and are kept rather than
+   * arbitrated: "Washington" really can be both a person and a place,
+   * each mention carries its own type, and which one a caller wants is
+   * not a decision this layer can make correctly.</p>
+   *
+   * <p>Thread safety follows the parts: {@code NameFinderME} is
+   * {@code @ThreadSafe}, the finder list is immutable, and every call
+   * allocates its own result.</p>
+   */
+  private record MultiModelNameFinder(List<NameFinderME> finders) implements TokenNameFinder {
+
+    private static TokenNameFinder over(List<TokenNameFinderModel> models) {
+      return new MultiModelNameFinder(models.stream().map(NameFinderME::new).toList());
+    }
+
+    @Override
+    public Span[] find(String[] tokens) {
+      final List<Span> mentions = new ArrayList<>();
+      for (final NameFinderME finder : finders) {
+        mentions.addAll(Arrays.asList(finder.find(tokens)));
+      }
+      return mentions.toArray(new Span[0]);
+    }
+
+    @Override
+    public void clearAdaptiveData() {
+      finders.forEach(NameFinderME::clearAdaptiveData);
+    }
+  }
+
   private static final class SynchronizedAnnotator implements DocumentAnnotator {
 
     private final DocumentAnnotator delegate;

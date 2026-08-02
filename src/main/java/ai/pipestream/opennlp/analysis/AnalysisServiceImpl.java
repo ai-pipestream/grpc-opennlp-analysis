@@ -315,7 +315,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
             environment.embeddingsDirDescription() != null
                 ? environment.embeddingsDirDescription() : "")
         .setPosTagsAvailable(environment.posModel() != null)
-        .setNerAvailable(environment.nerModel() != null)
+        .setNerAvailable(!environment.nerModels().isEmpty())
         .setHunspellAvailable(environment.hunspellDictionary() != null)
         .setLemmatizerAvailable(environment.lemmatizer() != null)
         .setLatticeAvailable(environment.mecabDictionary() != null)

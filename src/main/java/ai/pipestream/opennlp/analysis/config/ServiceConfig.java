@@ -18,6 +18,7 @@
 package ai.pipestream.opennlp.analysis.config;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Server configuration, resolved from process arguments, environment variables,
@@ -64,12 +65,22 @@ import java.nio.file.Path;
  *                      processor count
  */
 public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
-                            Path posModelPath, Path nerModelPath,
+                            Path posModelPath, List<Path> nerModelPaths,
                             Path hunspellAffPath, Path hunspellDicPath,
                             Path lemmatizerDictPath, Path latticeDicDir,
                             Path sentencePieceModelPath, Path depparseModelPath,
                             Path wordnetDir, Path morfologikDictPath,
                             Path spellcheckModelPath, int streamWorkers) {
+
+  /**
+   * Normalizes the NER model list. Every other model setting says
+   * "absent" with {@code null}, so callers pass {@code null} here too;
+   * turning it into an empty list at the boundary keeps that idiom
+   * without every reader having to null-check a collection.
+   */
+  public ServiceConfig {
+    nerModelPaths = nerModelPaths == null ? List.of() : List.copyOf(nerModelPaths);
+  }
 
   /** Default gRPC listen port. */
   public static final int DEFAULT_PORT = 50051;
@@ -83,7 +94,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path posModelPath, Path nerModelPath,
                        Path hunspellAffPath, Path hunspellDicPath,
                        Path lemmatizerDictPath) {
-    this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
+    this(port, maxTextBytes, embeddingsDir, posModelPath, one(nerModelPath),
         hunspellAffPath, hunspellDicPath, lemmatizerDictPath, null, null, null, null,
         null, null, 0);
   }
@@ -94,7 +105,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path hunspellAffPath, Path hunspellDicPath,
                        Path lemmatizerDictPath, Path latticeDicDir,
                        Path sentencePieceModelPath, Path depparseModelPath) {
-    this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
+    this(port, maxTextBytes, embeddingsDir, posModelPath, one(nerModelPath),
         hunspellAffPath, hunspellDicPath, lemmatizerDictPath, latticeDicDir,
         sentencePieceModelPath, depparseModelPath, null, null, null, 0);
   }
@@ -129,7 +140,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
     return new ServiceConfig(port, maxTextBytes,
         path(setting("OPENNLP_EMBEDDINGS_DIR", "opennlp.embeddings.dir", null)),
         path(setting("OPENNLP_POS_MODEL", "opennlp.pos.model", null)),
-        path(setting("OPENNLP_NER_MODEL", "opennlp.ner.model", null)),
+        paths(setting("OPENNLP_NER_MODEL", "opennlp.ner.model", null)),
         path(setting("OPENNLP_HUNSPELL_AFF", "opennlp.hunspell.aff", null)),
         path(setting("OPENNLP_HUNSPELL_DIC", "opennlp.hunspell.dic", null)),
         path(setting("OPENNLP_LEMMATIZER_DICT", "opennlp.lemmatizer.dict", null)),
@@ -157,5 +168,29 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
 
   private static Path path(String value) {
     return value == null ? null : Path.of(value);
+  }
+
+  /** A single optional path as the list form the record now holds. */
+  private static List<Path> one(Path value) {
+    return value == null ? List.of() : List.of(value);
+  }
+
+  /**
+   * Several model paths from one setting. The stock English NER models are
+   * one file per entity type, so naming only one of them silently limits
+   * what the service can find: a person-only deployment reports no
+   * locations and no organizations while looking perfectly healthy.
+   * Separate with the platform path separator or a comma. A blank setting
+   * is no models rather than one empty path.
+   */
+  private static List<Path> paths(String value) {
+    if (value == null || value.isBlank()) {
+      return List.of();
+    }
+    return java.util.Arrays.stream(value.split("[" + java.io.File.pathSeparator + ",]"))
+        .map(String::trim)
+        .filter(s -> !s.isEmpty())
+        .map(Path::of)
+        .toList();
   }
 }
