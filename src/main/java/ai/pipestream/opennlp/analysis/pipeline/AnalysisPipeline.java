@@ -321,9 +321,10 @@ public final class AnalysisPipeline {
 
     if (posTags) {
       if (canPos) {
-        // Guarded: the tagger keeps per-call adaptive state in its searcher.
-        builder.add(new SynchronizedAnnotator(
-            new POSTaggerAnnotator(new POSTaggerME(environment.posModel()))));
+        // Unguarded: POSTaggerME is @ThreadSafe. It keeps its per-call
+        // result in a LastResultOwnerOrThreadLocal rather than a shared
+        // field, so concurrent tag() calls do not interfere.
+        builder.add(new POSTaggerAnnotator(new POSTaggerME(environment.posModel())));
       } else if (options.posTags()) {
         warnings.add("pos_tags was requested but no POS model is configured "
             + "(OPENNLP_POS_MODEL); pos stays empty");
@@ -332,9 +333,13 @@ public final class AnalysisPipeline {
 
     if (ner) {
       if (canNer) {
-        // Guarded: the name finder clears adaptive data per call.
-        builder.add(new SynchronizedAnnotator(
-            new NameFinderAnnotator(new NameFinderME(environment.nerModel()))));
+        // Unguarded: NameFinderME is @ThreadSafe. bestSequence lives in a
+        // LastResultOwnerOrThreadLocal and the additional-context
+        // generator keeps its array in its own ThreadLocal, which is why
+        // ThreadSafeNameFinderME is deprecated since 3.0.0 rather than
+        // recommended. The per-call clearAdaptiveData() this annotator
+        // makes therefore clears per-thread state, not a shared map.
+        builder.add(new NameFinderAnnotator(new NameFinderME(environment.nerModel())));
       } else if (options.ner()) {
         warnings.add("ner was requested but no NER model is configured "
             + "(OPENNLP_NER_MODEL); entities stays empty");
@@ -342,7 +347,10 @@ public final class AnalysisPipeline {
     }
 
     if (dependencyParse) {
-      // Guarded: parser thread-safety is not documented as shareable.
+      // Still guarded: unlike POSTaggerME and NameFinderME, the parser
+      // carries no @ThreadSafe marker, so sharing it is unproven. This
+      // guard stays until it is, rather than on the assumption that the
+      // neighbouring ones were removable for the same reason.
       builder.add(new SynchronizedAnnotator(new DependencyAnnotator(
           new FeedforwardDependencyParser(environment.depparseModel()))));
     }
