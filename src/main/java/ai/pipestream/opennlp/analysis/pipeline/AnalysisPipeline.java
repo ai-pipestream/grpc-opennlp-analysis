@@ -347,12 +347,18 @@ public final class AnalysisPipeline {
     }
 
     if (dependencyParse) {
-      // Still guarded: unlike POSTaggerME and NameFinderME, the parser
-      // carries no @ThreadSafe marker, so sharing it is unproven. This
-      // guard stays until it is, rather than on the assumption that the
-      // neighbouring ones were removable for the same reason.
-      builder.add(new SynchronizedAnnotator(new DependencyAnnotator(
-          new FeedforwardDependencyParser(environment.depparseModel()))));
+      // Unguarded on a read of the whole path rather than a marker:
+      // FeedforwardDependencyParser holds three final fields and
+      // allocates all parse state per call, and the model's score()
+      // allocates its working arrays locally over frozen weights. Its
+      // one mutable structure is a lock-free cache: an
+      // AtomicReferenceArray published by compareAndSet, where the
+      // cached value is a pure function of immutable model data, so two
+      // threads racing on a pair compute identical bytes and the CAS
+      // settles which instance is kept. The class carries no
+      // @ThreadSafe marker, which is why this comment is long.
+      builder.add(new DependencyAnnotator(
+          new FeedforwardDependencyParser(environment.depparseModel())));
     }
 
     if (coref) {
@@ -366,11 +372,13 @@ public final class AnalysisPipeline {
     }
 
     if (geo) {
-      // Guarded: gazetteer/geocoder thread-safety is unverified. The bundled
+      // Unguarded: the components that do the work are @ThreadSafe
+      // (PopulationPriorGeocoder, BundledGazetteer) and both annotators
+      // are stateless wrappers holding only final fields. The bundled
       // Natural Earth gazetteer needs no external files.
-      builder.add(new SynchronizedAnnotator(new GeocodeAnnotator(
-          new PopulationPriorGeocoder(BundledGazetteer.getInstance()))));
-      builder.add(new SynchronizedAnnotator(new DocumentRegionAnnotator()));
+      builder.add(new GeocodeAnnotator(
+          new PopulationPriorGeocoder(BundledGazetteer.getInstance())));
+      builder.add(new DocumentRegionAnnotator());
     }
 
     // Stem-sourced term vectors group occurrences service-side by the stems
