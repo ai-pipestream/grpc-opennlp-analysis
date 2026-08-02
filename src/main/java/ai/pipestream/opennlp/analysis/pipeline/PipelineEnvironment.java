@@ -18,6 +18,9 @@
 package ai.pipestream.opennlp.analysis.pipeline;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,6 +31,7 @@ import ai.pipestream.opennlp.analysis.config.ServiceConfig;
 import opennlp.embeddings.StaticEmbeddingModel;
 import opennlp.subword.sentencepiece.SentencePieceTokenizer;
 import opennlp.tools.depparse.FeedforwardDependencyModel;
+import opennlp.tools.formats.MorfologikDictionaryReader;
 import opennlp.tools.lemmatizer.DictionaryLemmatizer;
 import opennlp.tools.lemmatizer.Lemmatizer;
 import opennlp.tools.namefind.TokenNameFinderModel;
@@ -57,9 +61,10 @@ import opennlp.wordnet.WndbReader;
  * @param hunspellDictionary the Hunspell dictionary, or {@code null} when
  *                           STEMMER_HUNSPELL is unavailable
  * @param lemmatizer the lemmatizer backend (WordNet Morphy when
- *                   {@code OPENNLP_WORDNET_DIR} is set, otherwise the
- *                   dictionary lemmatizer), or {@code null} when lemmatization
- *                   is unavailable
+ *                   {@code OPENNLP_WORDNET_DIR} is set, else the morfologik
+ *                   dictionary when {@code OPENNLP_MORFOLOGIK_DICT} is set,
+ *                   else the flat dictionary lemmatizer), or {@code null}
+ *                   when lemmatization is unavailable
  * @param mecabDictionary the MeCab dictionary for the lattice (CJK)
  *                        tokenizer, or {@code null} when TOKENIZER_LATTICE is
  *                        unavailable
@@ -190,14 +195,20 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
 
     Lemmatizer lemmatizer = null;
     if (config.wordnetDir() != null) {
-      // WordNet wins over the flat dictionary when both are configured: the
-      // Morphy lemmatizer validates rule-derived candidates against the
-      // lexicon, so its lemmas are real words rather than truncations.
+      // WordNet wins over both dictionary backends when several are
+      // configured: the Morphy lemmatizer validates rule-derived candidates
+      // against the lexicon, so its lemmas are real words rather than
+      // truncations.
       try {
         lemmatizer = new WordNetLemmatizer(new MorphyLemmatizer(
             WndbReader.read(config.wordnetDir()),
             MorphyExceptions.load(config.wordnetDir())));
         LOG.info("Loaded WordNet lemmatizer from {}", config.wordnetDir());
+        if (config.morfologikDictPath() != null) {
+          warnings.add("both OPENNLP_WORDNET_DIR and OPENNLP_MORFOLOGIK_DICT are "
+              + "set; the WordNet lemmatizer serves lemmatize requests and "
+              + config.morfologikDictPath() + " is ignored");
+        }
         if (config.lemmatizerDictPath() != null) {
           warnings.add("both OPENNLP_WORDNET_DIR and OPENNLP_LEMMATIZER_DICT are "
               + "set; the WordNet lemmatizer serves lemmatize requests and "
@@ -208,6 +219,41 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
             + " but the WordNet database could not be loaded: " + e.getMessage()
             + "; lemmatize requests return a warning and no lemmas");
         LOG.error("Could not load WordNet database from {}", config.wordnetDir(), e);
+      }
+    } else if (config.morfologikDictPath() != null) {
+      // A configured dictionary that is not there is a configuration error,
+      // not an unavailable feature: fail startup rather than serve a
+      // silently different lemmatizer.
+      if (!Files.isRegularFile(config.morfologikDictPath())) {
+        throw new IllegalStateException("OPENNLP_MORFOLOGIK_DICT is set to "
+            + config.morfologikDictPath() + " but that file does not exist");
+      }
+      final Path infoPath = morfologikInfoPath(config.morfologikDictPath());
+      if (!Files.isRegularFile(infoPath)) {
+        // The .info metadata declares the separator, encoding, and base-form
+        // encoder; without it the automaton cannot be read, so the backend
+        // degrades like any other unavailable optional feature.
+        warnings.add("OPENNLP_MORFOLOGIK_DICT is set to " + config.morfologikDictPath()
+            + " but its metadata sibling " + infoPath + " does not exist; "
+            + "lemmatize requests return a warning and no lemmas");
+      } else {
+        try (InputStream dict = Files.newInputStream(config.morfologikDictPath());
+            InputStream info = Files.newInputStream(infoPath)) {
+          lemmatizer = MorfologikDictionaryReader.read(dict, info);
+          LOG.info("Loaded morfologik lemmatizer dictionary from {}",
+              config.morfologikDictPath());
+          if (config.lemmatizerDictPath() != null) {
+            warnings.add("both OPENNLP_MORFOLOGIK_DICT and OPENNLP_LEMMATIZER_DICT "
+                + "are set; the morfologik lemmatizer serves lemmatize requests "
+                + "and " + config.lemmatizerDictPath() + " is ignored");
+          }
+        } catch (IOException | RuntimeException e) {
+          warnings.add("OPENNLP_MORFOLOGIK_DICT is set to " + config.morfologikDictPath()
+              + " but the dictionary could not be loaded: " + e.getMessage()
+              + "; lemmatize requests return a warning and no lemmas");
+          LOG.error("Could not load morfologik dictionary from {}",
+              config.morfologikDictPath(), e);
+        }
       }
     } else if (config.lemmatizerDictPath() != null) {
       try {
@@ -286,5 +332,14 @@ public record PipelineEnvironment(StaticEmbeddingModel embeddingModel,
     return new PipelineEnvironment(embeddingModel, embeddingsDir, posModel, nerModel,
         hunspellDictionary, lemmatizer, mecabDictionary, sentencePieceTokenizer,
         depparseModel, spellcheckModel, List.copyOf(warnings));
+  }
+
+  /** The metadata sibling of a morfologik dictionary: the same file with the
+   * extension replaced by {@code .info} ({@code english.dict} -&gt;
+   * {@code english.info}). */
+  private static Path morfologikInfoPath(Path dict) {
+    final String name = dict.getFileName().toString();
+    final int dot = name.lastIndexOf('.');
+    return dict.resolveSibling((dot > 0 ? name.substring(0, dot) : name) + ".info");
   }
 }

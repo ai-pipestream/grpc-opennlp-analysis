@@ -109,7 +109,21 @@ final class ResourceCatalog {
           List.of(
               URI.create("https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz")),
           List.of(
-              "OPENNLP_WORDNET_DIR=dict")));
+              "OPENNLP_WORDNET_DIR=dict")),
+      "morfologik-en", new Entry(
+          "morfologik-en",
+          "LanguageTool English morphological dictionary (CFSA2 FSA; from "
+              + "org.languagetool:language-en:5.9 on Maven Central - 6.x no "
+              + "longer ships it in-jar), for the morfologik lemmatizer "
+              + "backend; LanguageTool is LGPL-2.1, installing is accepting "
+              + "that license",
+          List.of(
+              URI.create("https://repo1.maven.org/maven2/org/languagetool/"
+                  + "language-en/5.9/language-en-5.9.jar")),
+          List.of(
+              // The jar is a zip, so the installer unpacks it with its
+              // structure; the .info metadata sibling ships alongside.
+              "OPENNLP_MORFOLOGIK_DICT=org/languagetool/resource/en/english.dict")));
 
   private ResourceCatalog() {
   }

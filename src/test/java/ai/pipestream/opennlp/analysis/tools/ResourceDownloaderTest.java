@@ -88,6 +88,24 @@ class ResourceDownloaderTest {
   }
 
   @Test
+  void morfologikEntryNamesItsServerSettingAndInJarPath() {
+    final var entry = ResourceCatalog.find("morfologik-en").orElseThrow();
+
+    // The source is the LanguageTool jar; the installer unpacks zip-magic
+    // downloads with their structure, so the setting points at the in-jar
+    // path of the dictionary (its .info sibling lands alongside).
+    assertThat(entry.sources()).singleElement()
+        .satisfies(uri -> assertThat(uri.toString())
+            .contains("org/languagetool/language-en/5.9"));
+    assertThat(entry.envVars()).singleElement()
+        .satisfies(pair -> assertThat(pair).isEqualTo(
+            "OPENNLP_MORFOLOGIK_DICT=org/languagetool/resource/en/english.dict"));
+    assertThat(ResourceCatalog.envGuidance(entry, Path.of("/models/morfo")))
+        .containsExactly("OPENNLP_MORFOLOGIK_DICT="
+            + "/models/morfo/org/languagetool/resource/en/english.dict");
+  }
+
+  @Test
   void blankCatalogNamesAreRejected() {
     assertThatThrownBy(() -> new ResourceCatalog.Entry(" ", "d",
         java.util.List.of(java.net.URI.create("https://example.org/x")), null))

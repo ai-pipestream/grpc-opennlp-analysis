@@ -48,7 +48,14 @@ import java.nio.file.Path;
  * @param wordnetDir path to a WordNet database directory (the WNdb
  *                   {@code data.*}/{@code index.*}/{@code *.exc} files), or
  *                   {@code null}; when set it is the lemmatizer backend,
- *                   taking precedence over {@code lemmatizerDictPath}
+ *                   taking precedence over {@code morfologikDictPath} and
+ *                   {@code lemmatizerDictPath}
+ * @param morfologikDictPath path to a morfologik morphological dictionary
+ *                           (a CFSA2/FSA5 {@code .dict} automaton with its
+ *                           {@code .info} metadata sibling), or {@code null};
+ *                           the lemmatizer backend when no WordNet directory
+ *                           is set, taking precedence over
+ *                           {@code lemmatizerDictPath}
  * @param spellcheckModelPath path to a serialized SymSpell spell-check model
  *                            behind NORMALIZER_STEP_SPELLCHECK, or
  *                            {@code null}
@@ -61,8 +68,8 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                             Path hunspellAffPath, Path hunspellDicPath,
                             Path lemmatizerDictPath, Path latticeDicDir,
                             Path sentencePieceModelPath, Path depparseModelPath,
-                            Path wordnetDir, Path spellcheckModelPath,
-                            int streamWorkers) {
+                            Path wordnetDir, Path morfologikDictPath,
+                            Path spellcheckModelPath, int streamWorkers) {
 
   /** Default gRPC listen port. */
   public static final int DEFAULT_PORT = 50051;
@@ -78,7 +85,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path lemmatizerDictPath) {
     this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
         hunspellAffPath, hunspellDicPath, lemmatizerDictPath, null, null, null, null,
-        null, 0);
+        null, null, 0);
   }
 
   /** Auto-sized stream worker pool (the processor count). */
@@ -89,7 +96,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path sentencePieceModelPath, Path depparseModelPath) {
     this(port, maxTextBytes, embeddingsDir, posModelPath, nerModelPath,
         hunspellAffPath, hunspellDicPath, lemmatizerDictPath, latticeDicDir,
-        sentencePieceModelPath, depparseModelPath, null, null, 0);
+        sentencePieceModelPath, depparseModelPath, null, null, null, 0);
   }
 
   /**
@@ -130,6 +137,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
         path(setting("OPENNLP_SENTENCEPIECE_MODEL", "opennlp.sentencepiece.model", null)),
         path(setting("OPENNLP_DEPPARSE_MODEL", "opennlp.depparse.model", null)),
         path(setting("OPENNLP_WORDNET_DIR", "opennlp.wordnet.dir", null)),
+        path(setting("OPENNLP_MORFOLOGIK_DICT", "opennlp.morfologik.dict", null)),
         path(setting("OPENNLP_SPELLCHECK_MODEL", "opennlp.spellcheck.model", null)),
         Integer.parseInt(setting(
             "OPENNLP_STREAM_WORKERS", "opennlp.stream.workers", "0")));
