@@ -228,14 +228,19 @@ grpcurl -plaintext -d '{
 ### Lemmatization
 
 `lemmatize: true` joins a server-configured backend onto the tokens, one
-lemma per token. Two backends: a WordNet database directory
-(`OPENNLP_WORDNET_DIR`, the WNdb `data.*`/`index.*`/`*.exc` files — the
-Morphy lemmatizer, real validated lemmas) or a flat dictionary
-(`OPENNLP_LEMMATIZER_DICT`, lines of `word<TAB>postag<TAB>lemma`). When both
-are set WordNet wins with a startup warning. Lookup keys on (token, POS
+lemma per token. Three backends, in priority order: a WordNet database
+directory (`OPENNLP_WORDNET_DIR`, the WNdb `data.*`/`index.*`/`*.exc` files
+— the Morphy lemmatizer, real validated lemmas), a morfologik morphological
+dictionary (`OPENNLP_MORFOLOGIK_DICT`, a CFSA2/FSA5 `.dict` automaton with
+its `.info` metadata sibling, as shipped in LanguageTool), or a flat
+dictionary (`OPENNLP_LEMMATIZER_DICT`, lines of `word<TAB>postag<TAB>lemma`).
+When several are set the highest-priority one wins and each shadowed setting
+adds a startup warning. A configured morfologik `.dict` that does not exist
+fails startup; a missing `.info` sibling disables the backend with a warning.
+Lookup keys on (token, POS
 tag); the WordNet backend adapts UD tags (`PROPN` lemmatizes as a noun) and
 falls back to an all-POS lookup when no POS model produced tags, while the
-flat dictionary looks up with the neutral empty tag. Unknown words come
+dictionary backends look up with the neutral empty tag. Unknown words come
 back as `"O"`. Unconfigured → warning, no lemmas.
 
 ### Normalizer steps
@@ -249,7 +254,14 @@ identity (token-sourced vectors only): `NORMALIZER_STEP_STRIP_INVISIBLE`,
 (Unicode normalization), `..._CONFUSABLE_SKELETON` (UTS #39 homoglyph
 folding), `..._ACCENT_FOLD`, `..._CASE_FOLD` (simple fold; keeps `ß`),
 `..._LINE_BREAK_PRESERVING_WHITESPACE`, `..._URL`, `..._NUMBER`,
-`..._SOCIAL_MEDIA`, and `..._SHRINK` (repeated-character runs shrink to two).
+`..._SOCIAL_MEDIA`, and `..._SHRINK` (repeated-character runs shrink to two),
+plus `..._DEHYPHENATE` (line-break hyphenation joining:
+`litiga-\ntion`→`litigation`). `DEHYPHENATE` is the one count-changing step:
+it is valid only for `SOURCE_TOKENS` identity, where the server re-tokenizes
+the normalized text and maps the joined term's span back to the original
+offsets (the span covers the hyphen and the line break), and only in an
+all-offset-aware chain — combining it with a JDK/regex-backed step or with
+`SOURCE_STEMS` fails with `INVALID_ARGUMENT`.
 Steps apply in the OpenNLP builder's fixed order regardless of request order.
 When `enabled` is set with no steps, the default chain is
 `STRIP_INVISIBLE + WHITESPACE + FULL_CASE_FOLD` — the chain BM25 consumers
@@ -268,7 +280,11 @@ not), `lattice_available`, `sentencepiece_available`, and
 `dependency_parse_available` (tokenizer/parser files configured or not), the
 max text size, and the supported stemmer/step/tokenizer option names. Noise
 scoring, artifact flagging, glossary matching, and PII extraction are
-model-free and always available, so they carry no availability flags.
+model-free and always available, so they carry no availability flags. Dual
+term identity, spell correction, and de-hyphenation additionally report
+discovery flags (`dual_term_identity_available`, `spellcheck_available`,
+`dehyphenation_available`) so a client compiled against an older contract
+can tell the features exist on this server.
 
 ## Model-free by default
 
@@ -294,7 +310,9 @@ configuration and are never downloaded at request time:
   `OPENNLP_HUNSPELL_DIC` to a Hunspell dictionary pair, then select
   `STEMMER_HUNSPELL` per request.
 - **Lemmatization** — set `OPENNLP_WORDNET_DIR` to a WordNet database
-  directory (preferred; the Morphy lemmatizer) or `OPENNLP_LEMMATIZER_DICT`
+  directory (preferred; the Morphy lemmatizer), `OPENNLP_MORFOLOGIK_DICT` to
+  a morfologik `.dict` automaton with its `.info` sibling (e.g. the
+  LanguageTool English dictionary), or `OPENNLP_LEMMATIZER_DICT`
   to a `word<TAB>postag<TAB>lemma` file, then set `lemmatize: true` per
   request.
 - **Spell correction** — set `OPENNLP_SPELLCHECK_MODEL` to a serialized
@@ -331,7 +349,9 @@ archive-path-escape rejection.
 
 Installing a catalog entry prints the exact `OPENNLP_*` exports to hand the
 server. The catalog currently covers the LibreOffice Hunspell English (US)
-dictionary; anything else (a MeCab dictionary tarball, a SentencePiece
+dictionary, the OpenNLP POS/NER models, the Princeton WordNet database, and
+the LanguageTool English morfologik dictionary; anything else (a MeCab
+dictionary tarball, a SentencePiece
 `.model`, a feedforward dependency model, a POS/NER `.bin`) installs by URL.
 POS/NER model loading relies on the build's generated `opennlp.version`
 resource (see `build.gradle`): the fork's own version string does not parse,
@@ -349,6 +369,7 @@ and the generated parseable rendition shadows it on the classpath.
 | Hunspell .aff file | `OPENNLP_HUNSPELL_AFF` | `opennlp.hunspell.aff` | unset (unavailable) |
 | Hunspell .dic file | `OPENNLP_HUNSPELL_DIC` | `opennlp.hunspell.dic` | unset (unavailable) |
 | WordNet database dir | `OPENNLP_WORDNET_DIR` | `opennlp.wordnet.dir` | unset (unavailable) |
+| Morfologik dictionary | `OPENNLP_MORFOLOGIK_DICT` | `opennlp.morfologik.dict` | unset (unavailable) |
 | Lemmatizer dictionary | `OPENNLP_LEMMATIZER_DICT` | `opennlp.lemmatizer.dict` | unset (unavailable) |
 | Spell-check model file | `OPENNLP_SPELLCHECK_MODEL` | `opennlp.spellcheck.model` | unset (SPELLCHECK step skipped with a warning) |
 | MeCab dictionary dir | `OPENNLP_LATTICE_DIC_DIR` | `opennlp.lattice.dic.dir` | unset (LATTICE falls back to whitespace) |
