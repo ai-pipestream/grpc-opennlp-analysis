@@ -70,7 +70,46 @@ final class ResourceCatalog {
                   + "main/dictionaries/en/index.dic")),
           List.of(
               "OPENNLP_HUNSPELL_AFF=index.aff",
-              "OPENNLP_HUNSPELL_DIC=index.dic")));
+              "OPENNLP_HUNSPELL_DIC=index.dic")),
+      "pos-en-ud-ewt", new Entry(
+          "pos-en-ud-ewt",
+          "Apache OpenNLP English UD EWT part-of-speech model (Maven Central, "
+              + "org.apache.opennlp:opennlp-models-pos-en), for pos_tags",
+          List.of(
+              URI.create("https://repo1.maven.org/maven2/org/apache/opennlp/"
+                  + "opennlp-models-pos-en/1.3.0/opennlp-models-pos-en-1.3.0.jar")),
+          List.of(
+              "OPENNLP_POS_MODEL=opennlp-en-ud-ewt-pos-1.3-2.5.4.bin")),
+      "ner-en-person", new Entry(
+          "ner-en-person",
+          "Apache OpenNLP English person-name finder model (SourceForge "
+              + "models-1.5), for ner. Stock English NER types cover "
+              + "person/location/organization and the like; use a glossary for "
+              + "anything else",
+          List.of(
+              URI.create("https://opennlp.sourceforge.net/models-1.5/en-ner-person.bin")),
+          List.of(
+              "OPENNLP_NER_MODEL=en-ner-person.bin")),
+      "ner-en-location", new Entry(
+          "ner-en-location",
+          "Apache OpenNLP English location-name finder model (SourceForge "
+              + "models-1.5), for ner and geo",
+          List.of(
+              URI.create("https://opennlp.sourceforge.net/models-1.5/"
+                  + "en-ner-location.bin")),
+          List.of(
+              "OPENNLP_NER_MODEL=en-ner-location.bin")),
+      "wordnet-en", new Entry(
+          "wordnet-en",
+          "Princeton WordNet 3.1 database (dict-only tarball, which unlike "
+              + "WNdb-3.0.tar.gz ships the .exc exception lists Morphy needs), "
+              + "for the WordNet lemmatizer backend; WordNet license "
+              + "(Princeton), see "
+              + "https://wordnet.princeton.edu/license-and-commercial-use",
+          List.of(
+              URI.create("https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz")),
+          List.of(
+              "OPENNLP_WORDNET_DIR=dict")));
 
   private ResourceCatalog() {
   }

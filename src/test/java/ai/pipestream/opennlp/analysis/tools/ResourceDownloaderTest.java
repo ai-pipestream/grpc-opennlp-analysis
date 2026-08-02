@@ -70,6 +70,24 @@ class ResourceDownloaderTest {
   }
 
   @Test
+  void modelEntriesNameTheirServerSetting() {
+    assertThat(ResourceCatalog.find("pos-en-ud-ewt").orElseThrow().envVars())
+        .singleElement()
+        .satisfies(pair -> assertThat(pair)
+            .startsWith("OPENNLP_POS_MODEL=").contains(".bin"));
+    assertThat(ResourceCatalog.find("ner-en-person").orElseThrow().envVars())
+        .singleElement()
+        .satisfies(pair -> assertThat(pair)
+            .startsWith("OPENNLP_NER_MODEL=").contains("en-ner-person.bin"));
+    assertThat(ResourceCatalog.find("ner-en-location").orElseThrow().envVars())
+        .singleElement()
+        .satisfies(pair -> assertThat(pair).startsWith("OPENNLP_NER_MODEL="));
+    assertThat(ResourceCatalog.find("wordnet-en").orElseThrow().envVars())
+        .singleElement()
+        .satisfies(pair -> assertThat(pair).isEqualTo("OPENNLP_WORDNET_DIR=dict"));
+  }
+
+  @Test
   void blankCatalogNamesAreRejected() {
     assertThatThrownBy(() -> new ResourceCatalog.Entry(" ", "d",
         java.util.List.of(java.net.URI.create("https://example.org/x")), null))
