@@ -85,17 +85,18 @@ class NormalizerStepTest {
   }
 
   @Test
-  void symbolJoinerStepSpellsOutWholeTokenAmpersand() {
+  void symbolJoinerStepSpellsOutWholeTokenSymbols() {
     // "Dungeons & Dragons" and a query typing "dungeons and dragons" agree on
-    // term identity once "&" spells out; embedded ampersands stay untouched.
-    final Document document = analyze("Dungeons & Dragons R&D",
+    // term identity once "&" spells out; the legal reference marks spell out
+    // too ("§ 1983" meets "section 1983"); embedded symbols stay untouched.
+    final Document document = analyze("Dungeons & Dragons § R&D",
         PipelineOptions.NormalizerStep.SYMBOL_JOINER,
         PipelineOptions.NormalizerStep.FULL_CASE_FOLD);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
     assertThat(vectors).extracting(a -> a.value().term())
-        .containsExactlyInAnyOrder("dungeons", "and", "dragons", "r&d");
+        .containsExactlyInAnyOrder("dungeons", "and", "dragons", "section", "r&d");
     // The "and" term keeps the ampersand's original-text span.
     assertThat(vectors).filteredOn(a -> a.value().term().equals("and"))
         .singleElement()

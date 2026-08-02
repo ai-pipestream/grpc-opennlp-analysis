@@ -86,6 +86,7 @@ import opennlp.tools.util.normalizer.GermanUmlautCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.NumberCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.OffsetAwareNormalizer;
 import opennlp.tools.util.normalizer.ShrinkCharSequenceNormalizer;
+import opennlp.tools.util.normalizer.SymbolJoinerCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.SocialMediaCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.TextNormalizer;
 import opennlp.tools.util.normalizer.UrlCharSequenceNormalizer;
