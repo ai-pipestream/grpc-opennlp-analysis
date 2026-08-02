@@ -75,6 +75,7 @@ import opennlp.tools.stemmer.light.SpanishMinimalStemmer;
 import opennlp.tools.stemmer.light.SwedishLightStemmer;
 import opennlp.tools.stemmer.light.SwedishMinimalStemmer;
 import opennlp.tools.stemmer.snowball.SnowballStemmer;
+import opennlp.tools.termvector.RetokenizingTermVectorAnnotator;
 import opennlp.tools.termvector.TermVectorAnnotator;
 import opennlp.tools.tokenize.SimpleTokenizer;
 import opennlp.tools.tokenize.WhitespaceTokenizer;
@@ -82,6 +83,7 @@ import opennlp.tools.tokenize.lattice.LatticeTokenizer;
 import opennlp.tools.tokenize.uax29.WordTokenizer;
 import opennlp.tools.util.normalizer.CharSequenceNormalizer;
 import opennlp.tools.util.normalizer.ConfusableSkeletonCharSequenceNormalizer;
+import opennlp.tools.util.normalizer.DehyphenationCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.GermanUmlautCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.NumberCharSequenceNormalizer;
 import opennlp.tools.util.normalizer.OffsetAwareNormalizer;
@@ -220,7 +222,9 @@ public final class AnalysisPipeline {
       builder.add(new SentenceDetectorAnnotator(new NewlineSentenceDetector()));
     }
 
-    builder.add(new TokenizerAnnotator(tokenizer(options.tokenizer(), environment, warnings)));
+    final opennlp.tools.tokenize.Tokenizer tokenizer =
+        tokenizer(options.tokenizer(), environment, warnings);
+    builder.add(new TokenizerAnnotator(tokenizer));
 
     if (options.noise()) {
       // Assets first: the noise scorer's default mode excludes embedded
@@ -366,14 +370,29 @@ public final class AnalysisPipeline {
     // when every step can report an alignment; a chain containing a
     // JDK/regex-backed step (NFKC, confusable skeleton, accent/case fold,
     // URL/number/social/shrink) goes through the per-token annotator, which
-    // needs no alignment because occurrence spans are the token spans.
+    // needs no alignment because occurrence spans are the token spans. A
+    // chain containing DEHYPHENATE instead re-tokenizes the normalized text:
+    // the join it makes changes the token count, so mapping the original
+    // tokens forward could never produce the joined term.
     if (options.termVectors() != null
         && options.termVectors().source() == PipelineOptions.TermVectorSource.TOKENS) {
       final PipelineOptions.TermVectorSpec spec = options.termVectors();
       final TermVectorAnnotator.Mode mode =
           spec.mode() == PipelineOptions.TermVectorMode.SCORING_ONLY
               ? TermVectorAnnotator.Mode.SCORING_ONLY : TermVectorAnnotator.Mode.FULL;
-      if (spec.steps().stream().allMatch(PipelineOptions.NormalizerStep::isOffsetAware)) {
+      final boolean aligned =
+          spec.steps().stream().allMatch(PipelineOptions.NormalizerStep::isOffsetAware);
+      if (spec.steps().contains(PipelineOptions.NormalizerStep.DEHYPHENATE)) {
+        if (!aligned) {
+          // The mapper rejects this combination before a pipeline is ever
+          // built; a directly constructed option-set fails just as loudly.
+          throw new IllegalArgumentException("NORMALIZER_STEP_DEHYPHENATE requires "
+              + "every step in the chain to be offset-aware: without an alignment "
+              + "the joined term's span cannot be mapped back to the original text");
+        }
+        builder.add(new RetokenizingTermVectorAnnotator(
+            alignedNormalizer(spec.steps()), tokenizer, mode));
+      } else if (aligned) {
         builder.add(new TermVectorAnnotator(alignedNormalizer(spec.steps()), mode));
       } else {
         builder.add(new PerTokenTermVectorAnnotator(normalizerChain(spec.steps(), spellcheck), mode));
@@ -495,7 +514,12 @@ public final class AnalysisPipeline {
   private static TextNormalizer.Builder normalizerBuilder(
       List<PipelineOptions.NormalizerStep> steps, CharSequenceNormalizer spellcheck) {
     final TextNormalizer.Builder builder = TextNormalizer.builder();
-    // Compatibility normalization first: it rewrites the characters every
+    if (steps.contains(PipelineOptions.NormalizerStep.DEHYPHENATE)) {
+      // Before every other step: it matches on the line break, and the
+      // whitespace-folding steps would collapse exactly that break first.
+      builder.with(DehyphenationCharSequenceNormalizer.getInstance());
+    }
+    // Compatibility normalization next: it rewrites the characters every
     // later step matches on (full-width forms, ligatures, …).
     if (steps.contains(PipelineOptions.NormalizerStep.NFKC)) {
       builder.nfkc();

@@ -258,7 +258,13 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     SYMBOL_JOINER,
     /** SymSpell spell correction; needs a server-configured model
      * (OPENNLP_SPELLCHECK_MODEL). */
-    SPELLCHECK;
+    SPELLCHECK,
+    /** Joins line-break hyphenation ("litiga-\ntion" -&gt; "litigation").
+     * The one count-changing step: valid only for
+     * {@link TermVectorSource#TOKENS} identity, where the server re-tokenizes
+     * the normalized text and maps the joined term's span back to the original
+     * offsets, and only in an all-offset-aware chain. */
+    DEHYPHENATE;
 
     /**
      * Whether this step can report a character alignment and so compose into

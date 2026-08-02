@@ -57,12 +57,35 @@ final class OptionsMapper {
                 + "chain, so there is no folded form to contrast the cased one with")
             .asRuntimeException();
       }
-      termVectors = new PipelineOptions.TermVectorSpec(
-          termVectorMode(proto.getTermVectors().getMode()),
+      final List<PipelineOptions.NormalizerStep> steps =
           proto.getTermVectors().getStepsList().stream()
               .map(OptionsMapper::step)
               .filter(Objects::nonNull)
-              .toList(),
+              .toList();
+      if (steps.contains(PipelineOptions.NormalizerStep.DEHYPHENATE)) {
+        if (source == PipelineOptions.TermVectorSource.STEMS) {
+          throw Status.INVALID_ARGUMENT
+              .withDescription("NORMALIZER_STEP_DEHYPHENATE requires the SOURCE_TOKENS "
+                  + "term vector source: SOURCE_STEMS ignores the step chain, and the "
+                  + "join this step makes is exactly the identity that source would "
+                  + "never see")
+              .asRuntimeException();
+        }
+        final List<PipelineOptions.NormalizerStep> unaligned = steps.stream()
+            .filter(s -> !s.isOffsetAware())
+            .toList();
+        if (!unaligned.isEmpty()) {
+          throw Status.INVALID_ARGUMENT
+              .withDescription("NORMALIZER_STEP_DEHYPHENATE requires every step in the "
+                  + "chain to be offset-aware: " + unaligned + " cannot report an "
+                  + "alignment, so the joined term's span could not be mapped back "
+                  + "to the original text")
+              .asRuntimeException();
+        }
+      }
+      termVectors = new PipelineOptions.TermVectorSpec(
+          termVectorMode(proto.getTermVectors().getMode()),
+          steps,
           source,
           proto.getTermVectors().getDualCased());
     } else {
