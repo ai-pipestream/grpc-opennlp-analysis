@@ -321,6 +321,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         .setLatticeAvailable(environment.mecabDictionary() != null)
         .setSentencepieceAvailable(environment.sentencePieceTokenizer() != null)
         .setDependencyParseAvailable(environment.depparseModel() != null)
+        .setDualTermIdentityAvailable(true)
         .setMaxTextBytes(config.maxTextBytes())
         .addAllStemmers(java.util.Arrays.stream(AnalysisOptions.Stemmer.values())
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED
@@ -538,6 +539,28 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         }
         response.addTermVectors(out);
       });
+      if (termVectorSpec.dualCased() && pipeline.casedStemmer() != null) {
+        // The cased half of a dual-identity request: the same grouping, keyed
+        // by the stem of the case-preserving normalized form. Same tokens,
+        // same spans, one pass.
+        final Map<String, List<opennlp.tools.util.Span>> spansByCasedStem =
+            new LinkedHashMap<>();
+        for (Annotation<String> token : tokens) {
+          final String casedStem = pipeline.casedStemmer()
+              .stem(token.span().getCoveredText(text)).toString();
+          spansByCasedStem.computeIfAbsent(casedStem, s -> new ArrayList<>())
+              .add(token.span());
+        }
+        spansByCasedStem.forEach((stem, spans) -> {
+          final TermVector.Builder out = TermVector.newBuilder()
+              .setTerm(stem)
+              .setFrequency(spans.size());
+          if (full) {
+            spans.forEach(occurrence -> out.addOccurrences(span(occurrence)));
+          }
+          response.addCasedTermVectors(out);
+        });
+      }
     } else {
       for (Annotation<opennlp.tools.termvector.TermVector> annotation
           : document.get(TermVectorAnnotator.TERM_VECTORS)) {
@@ -549,6 +572,31 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
           vector.spans().forEach(occurrence -> out.addOccurrences(span(occurrence)));
         }
         response.addTermVectors(out);
+      }
+      if (termVectorSpec != null && termVectorSpec.dualCased()
+          && pipeline.casedNormalizer() != null) {
+        // Token-sourced dual identity: group per token under the
+        // case-preserving normalized form, the same semantics the per-token
+        // term vector annotator applies for the folded list.
+        final boolean full =
+            termVectorSpec.mode() == PipelineOptions.TermVectorMode.FULL;
+        final Map<String, List<opennlp.tools.util.Span>> spansByCasedTerm =
+            new LinkedHashMap<>();
+        for (Annotation<String> token : tokens) {
+          final String casedTerm = pipeline.casedNormalizer()
+              .normalize(token.span().getCoveredText(text)).toString();
+          spansByCasedTerm.computeIfAbsent(casedTerm, s -> new ArrayList<>())
+              .add(token.span());
+        }
+        spansByCasedTerm.forEach((term, spans) -> {
+          final TermVector.Builder out = TermVector.newBuilder()
+              .setTerm(term)
+              .setFrequency(spans.size());
+          if (full) {
+            spans.forEach(occurrence -> out.addOccurrences(span(occurrence)));
+          }
+          response.addCasedTermVectors(out);
+        });
       }
     }
 

@@ -135,6 +135,34 @@ class StemmedTermVectorTest {
   }
 
   @Test
+  void symbolJoinerComposesWithNormalizedStemsOverTheWire() {
+    // The doc/query mismatch T9 fixes: "running & runs" folds the ampersand
+    // to "and" before stemming, so the symbol joiner participates in term
+    // identity instead of stemming to itself.
+    final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
+        .setText("running & runs")
+        .setOptions(AnalysisOptions.newBuilder()
+            .setStemmer(AnalysisOptions.Stemmer.STEMMER_PORTER)
+            .setTermVectors(TermVectorOptions.newBuilder()
+                .setEnabled(true)
+                .setSource(TermVectorOptions.Source.SOURCE_NORMALIZED_STEMS)
+                .setMode(TermVectorOptions.Mode.MODE_FULL)
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_SYMBOL_JOINER)
+                .addSteps(
+                    TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
+        .build());
+
+    assertThat(response.getTermVectorsList())
+        .extracting(v -> v.getTerm() + ":" + v.getFrequency())
+        .containsExactlyInAnyOrder("run:2", "and:1");
+    assertThat(response.getTermVectorsList().stream()
+        .filter(v -> v.getTerm().equals("and"))
+        .flatMap(v -> v.getOccurrencesList().stream())
+        .map(s -> s.getStart() + "-" + s.getEnd()))
+        .containsExactly("8-9");
+  }
+
+  @Test
   void normalizedStemsAcceptTheNonOffsetAwareSteps() {
     // NORMALIZED_STEMS runs the step chain (plain, per token) before the
     // stemmer. NFKC cannot report an alignment; this proves the fold-then-stem

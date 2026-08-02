@@ -49,13 +49,22 @@ final class OptionsMapper {
                 + "than STEMMER_NONE: the stem is the term identity in this mode")
             .asRuntimeException();
       }
+      if (proto.getTermVectors().getDualCased()
+          && source == PipelineOptions.TermVectorSource.STEMS) {
+        throw Status.INVALID_ARGUMENT
+            .withDescription("dual_cased requires a step-chain term vector source "
+                + "(TOKENS or NORMALIZED_STEMS): SOURCE_STEMS ignores the step "
+                + "chain, so there is no folded form to contrast the cased one with")
+            .asRuntimeException();
+      }
       termVectors = new PipelineOptions.TermVectorSpec(
           termVectorMode(proto.getTermVectors().getMode()),
           proto.getTermVectors().getStepsList().stream()
               .map(OptionsMapper::step)
               .filter(Objects::nonNull)
               .toList(),
-          source);
+          source,
+          proto.getTermVectors().getDualCased());
     } else {
       termVectors = null;
     }

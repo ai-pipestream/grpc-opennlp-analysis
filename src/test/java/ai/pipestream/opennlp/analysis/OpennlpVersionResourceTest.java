@@ -24,13 +24,14 @@ import org.junit.jupiter.api.Test;
 import opennlp.tools.util.Version;
 
 /**
- * The build generates a parseable rendition of the fork's broken
- * {@code opennlp/tools/util/opennlp.version} resource (its
- * "3.x-preview-SNAPSHOT" string fails {@code Version.parse}, which breaks
- * every BaseModel load and train). The app's own resources precede the
- * dependency jars, so the generated file shadows the broken one — this test
- * fails the moment that shadow stops working, for example after a fork fix
- * makes the workaround obsolete.
+ * Regression guard for the fork's {@code opennlp/tools/util/opennlp.version}
+ * resource: when its string fails {@code Version.parse} (as the
+ * "3.x-preview-SNAPSHOT" rendition did), every BaseModel load and train
+ * breaks. The fork now ships the parseable "0.0.0-preview-SNAPSHOT", which
+ * deliberately equals {@link Version#DEV_VERSION} after parsing: the preview
+ * claims no release lineage, and BaseModel's model-compat check stays
+ * disabled, exactly as for a dev build. This test fails the moment a
+ * published build regresses.
  */
 class OpennlpVersionResourceTest {
 
@@ -40,7 +41,7 @@ class OpennlpVersionResourceTest {
     // does not parse; reaching the assertions is most of the proof.
     final Version version = Version.currentVersion();
 
-    assertThat(version.getMajor()).isEqualTo(3);
+    assertThat(version).isEqualTo(Version.DEV_VERSION);
     assertThat(version.isSnapshot()).isTrue();
   }
 }

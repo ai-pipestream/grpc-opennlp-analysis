@@ -253,7 +253,9 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     /** Replaces hashtags, handles, and RT markers with a single space. */
     SOCIAL_MEDIA,
     /** Collapses whitespace and shrinks repeated-character runs to two. */
-    SHRINK;
+    SHRINK,
+    /** Spells out a whole-token symbol joiner ("&amp;" -&gt; "and"). */
+    SYMBOL_JOINER;
 
     /**
      * Whether this step can report a character alignment and so compose into
@@ -266,9 +268,19 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     public boolean isOffsetAware() {
       return switch (this) {
         case NFKC, NFC, CONFUSABLE_SKELETON, ACCENT_FOLD, CASE_FOLD, URL, NUMBER,
-            SOCIAL_MEDIA, SHRINK -> false;
+            SOCIAL_MEDIA, SHRINK, SYMBOL_JOINER -> false;
         default -> true;
       };
+    }
+
+    /**
+     * Whether this step folds letter case. The cased half of a dual-identity
+     * term vector request runs the requested chain minus exactly these steps.
+     *
+     * @return {@code true} when the step is a case fold
+     */
+    public boolean isCaseFold() {
+      return this == FULL_CASE_FOLD || this == CASE_FOLD;
     }
   }
 
@@ -326,9 +338,13 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
    *              default ({@link #DEFAULT_STEPS}); ignored when
    *              {@code source} is {@link TermVectorSource#STEMS}
    * @param source term identity source
+   * @param dualCased whether to also compute the cased identity: the same
+   *                  chain minus the case-folding steps
+   *                  ({@link NormalizerStep#isCaseFold()}), stemmed the same
+   *                  way for the stem sources
    */
   public record TermVectorSpec(TermVectorMode mode, List<NormalizerStep> steps,
-                               TermVectorSource source) {
+                               TermVectorSource source, boolean dualCased) {
 
     /** Default steps: strip invisible, collapse whitespace, full case fold. */
     public static final List<NormalizerStep> DEFAULT_STEPS =
@@ -343,11 +359,25 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
      * @param mode recording mode
      * @param steps requested steps, possibly empty
      * @param source term identity source
+     * @param dualCased whether to also compute the cased identity
      */
     public TermVectorSpec {
       steps = steps == null || steps.isEmpty()
           ? DEFAULT_STEPS : steps.stream().distinct().sorted().toList();
       source = source == null ? TermVectorSource.TOKENS : source;
+    }
+
+    /**
+     * Single-identity convenience: same as
+     * {@code TermVectorSpec(mode, steps, source, false)}.
+     *
+     * @param mode recording mode
+     * @param steps requested steps, possibly empty
+     * @param source term identity source
+     */
+    public TermVectorSpec(TermVectorMode mode, List<NormalizerStep> steps,
+                          TermVectorSource source) {
+      this(mode, steps, source, false);
     }
 
     /**
@@ -358,6 +388,16 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
      */
     public TermVectorSpec(TermVectorMode mode, List<NormalizerStep> steps) {
       this(mode, steps, TermVectorSource.TOKENS);
+    }
+
+    /**
+     * The step list the cased identity runs: the requested chain minus the
+     * case-folding steps.
+     *
+     * @return the case-preserving step list, never {@code null}
+     */
+    public List<NormalizerStep> casedSteps() {
+      return steps.stream().filter(step -> !step.isCaseFold()).toList();
     }
   }
 

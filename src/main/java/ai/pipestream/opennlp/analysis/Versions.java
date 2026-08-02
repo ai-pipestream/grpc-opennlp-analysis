@@ -39,7 +39,7 @@ final class Versions {
 
   /**
    * @return the version of the wrapped OpenNLP build, for example
-   *         {@code "3.x-preview-SNAPSHOT"}, or {@code "unknown"}
+   *         {@code "0.0.0-preview-SNAPSHOT"}, or {@code "unknown"}
    */
   static String opennlp() {
     return read(OPENNLP_POM_PROPERTIES, "version", "unknown");

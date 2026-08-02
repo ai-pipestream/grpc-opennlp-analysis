@@ -6,7 +6,7 @@ assertj = "3.27.7"
 slf4j = "2.0.18"
 # Experimental Apache OpenNLP 3.x preview, published as ai.pipestream snapshots.
 # The intent is to migrate to org.apache.opennlp 3.x as the preview features land upstream.
-opennlp = "3.x-preview-SNAPSHOT"
+opennlp = "0.0.0-preview-SNAPSHOT"
 protobuf-gradle = "0.10.0"
 graalvm-buildtools = "1.1.6"
 

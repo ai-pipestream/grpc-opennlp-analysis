@@ -130,7 +130,7 @@ class AnalysisServerIntegrationTest {
         stub.getCapabilities(GetCapabilitiesRequest.getDefaultInstance());
 
     assertThat(capabilities.getEmbeddingsEnabled()).isFalse();
-    assertThat(capabilities.getOpennlpVersion()).isEqualTo("3.x-preview-SNAPSHOT");
+    assertThat(capabilities.getOpennlpVersion()).isEqualTo("0.0.0-preview-SNAPSHOT");
     assertThat(capabilities.getWarningsList())
         .anySatisfy(w -> assertThat(w).contains("OPENNLP_EMBEDDINGS_DIR"));
   }

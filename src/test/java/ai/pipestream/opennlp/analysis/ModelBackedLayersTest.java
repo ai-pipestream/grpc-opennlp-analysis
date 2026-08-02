@@ -246,7 +246,7 @@ class ModelBackedLayersTest {
     assertThat(capabilities.getNerAvailable()).isTrue();
     assertThat(capabilities.getDependencyParseAvailable()).isTrue();
     // The OpenNLP library version comes from the opennlp-api jar metadata.
-    assertThat(capabilities.getOpennlpVersion()).isEqualTo("3.x-preview-SNAPSHOT");
+    assertThat(capabilities.getOpennlpVersion()).isEqualTo("0.0.0-preview-SNAPSHOT");
     // No lattice/SentencePiece files are configured on this server.
     assertThat(capabilities.getLatticeAvailable()).isFalse();
     assertThat(capabilities.getSentencepieceAvailable()).isFalse();

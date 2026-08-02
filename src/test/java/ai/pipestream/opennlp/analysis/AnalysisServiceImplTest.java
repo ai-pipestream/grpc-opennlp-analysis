@@ -239,7 +239,7 @@ class AnalysisServiceImplTest {
     final GetCapabilitiesResponse capabilities =
         stub.getCapabilities(GetCapabilitiesRequest.getDefaultInstance());
 
-    assertThat(capabilities.getOpennlpVersion()).isEqualTo("3.x-preview-SNAPSHOT");
+    assertThat(capabilities.getOpennlpVersion()).isEqualTo("0.0.0-preview-SNAPSHOT");
     assertThat(capabilities.getEmbeddingsEnabled()).isFalse();
     assertThat(capabilities.getEmbeddingsModelDir()).isEmpty();
     assertThat(capabilities.getPosTagsAvailable()).isFalse();

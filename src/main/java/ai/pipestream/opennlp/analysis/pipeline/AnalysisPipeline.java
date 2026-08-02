@@ -110,13 +110,18 @@ public final class AnalysisPipeline {
   private final PipelineOptions options;
   private final DocumentAnalyzer analyzer;
   private final EmbeddingAnnotator embeddingAnnotator;
+  private final Stemmer casedStemmer;
+  private final CharSequenceNormalizer casedNormalizer;
   private final List<String> warnings;
 
   private AnalysisPipeline(PipelineOptions options, DocumentAnalyzer analyzer,
-                           EmbeddingAnnotator embeddingAnnotator, List<String> warnings) {
+                           EmbeddingAnnotator embeddingAnnotator, Stemmer casedStemmer,
+                           CharSequenceNormalizer casedNormalizer, List<String> warnings) {
     this.options = options;
     this.analyzer = analyzer;
     this.embeddingAnnotator = embeddingAnnotator;
+    this.casedStemmer = casedStemmer;
+    this.casedNormalizer = casedNormalizer;
     this.warnings = warnings;
   }
 
@@ -231,8 +236,10 @@ public final class AnalysisPipeline {
           options.glossary().entries(), options.glossary().ignoreCase())));
     }
 
+    Stemmer baseStemmer = null;
     if (options.stemmer() != PipelineOptions.Stemmer.NONE) {
-      Stemmer stemmer = stemmer(options.stemmer(), environment, warnings);
+      baseStemmer = stemmer(options.stemmer(), environment, warnings);
+      Stemmer stemmer = baseStemmer;
       // NORMALIZED_STEMS folds BEFORE stemming. Stemmers are written for
       // folded input, so without this "COURT" survives a Porter pass
       // unchanged while "court" stems normally, and one corpus ends up
@@ -245,6 +252,31 @@ public final class AnalysisPipeline {
       }
       if (stemmer != null) {
         builder.add(new StemmerAnnotator(stemmer));
+      }
+    }
+
+    // Dual identity: the cased half is the same computation over the chain
+    // minus the case-folding steps. It runs service-side, like the
+    // stem-sourced grouping: the pipeline hands the service a stemmer over
+    // the cased chain (NORMALIZED_STEMS) or the cased normalizer itself
+    // (TOKENS), and the service groups occurrences under both identities in
+    // one pass.
+    Stemmer casedStemmer = null;
+    CharSequenceNormalizer casedNormalizer = null;
+    final PipelineOptions.TermVectorSpec dualSpec = options.termVectors();
+    if (dualSpec != null && dualSpec.dualCased()) {
+      if (dualSpec.casedSteps().equals(dualSpec.steps())) {
+        warnings.add("dual_cased was requested but the normalizer step chain has "
+            + "no case-folding step; cased_term_vectors will duplicate term_vectors");
+      }
+      if (dualSpec.source() == PipelineOptions.TermVectorSource.NORMALIZED_STEMS) {
+        // baseStemmer is null here when the dictionary is missing; that case
+        // already warned above, and cased_term_vectors stays as empty as stems.
+        if (baseStemmer != null) {
+          casedStemmer = normalizingStemmer(baseStemmer, dualSpec.casedSteps());
+        }
+      } else {
+        casedNormalizer = normalizerChain(dualSpec.casedSteps());
       }
     }
 
@@ -342,7 +374,7 @@ public final class AnalysisPipeline {
     }
 
     return new AnalysisPipeline(options, builder.build(), embeddingAnnotator,
-        List.copyOf(warnings));
+        casedStemmer, casedNormalizer, List.copyOf(warnings));
   }
 
   /**
@@ -368,6 +400,25 @@ public final class AnalysisPipeline {
    */
   public LayerKey<float[]> embeddingLayer() {
     return embeddingAnnotator != null ? embeddingAnnotator.layer() : null;
+  }
+
+  /**
+   * @return the stemmer over the case-preserving step chain for a
+   *         dual-identity request, or {@code null} when dual identity was not
+   *         requested, the source is not NORMALIZED_STEMS, or the stemmer's
+   *         dictionary is missing
+   */
+  public Stemmer casedStemmer() {
+    return casedStemmer;
+  }
+
+  /**
+   * @return the case-preserving normalizer chain for a dual-identity request
+   *         over the TOKENS source, or {@code null} when dual identity was not
+   *         requested or the source stems
+   */
+  public CharSequenceNormalizer casedNormalizer() {
+    return casedNormalizer;
   }
 
   /**
@@ -456,6 +507,11 @@ public final class AnalysisPipeline {
     }
     if (steps.contains(PipelineOptions.NormalizerStep.SHRINK)) {
       builder.with(ShrinkCharSequenceNormalizer.getInstance());
+    }
+    if (steps.contains(PipelineOptions.NormalizerStep.SYMBOL_JOINER)) {
+      // Whole-token symbol expansion ("&" -> "and"); runs before the folding
+      // steps so the spelled-out word folds and stems like any other token.
+      builder.with(SymbolJoinerCharSequenceNormalizer.getInstance());
     }
     if (steps.contains(PipelineOptions.NormalizerStep.CONFUSABLE_SKELETON)) {
       builder.with(ConfusableSkeletonCharSequenceNormalizer.getInstance());
