@@ -241,7 +241,7 @@ public final class AnalysisPipeline {
           && options.termVectors() != null
           && options.termVectors().source()
               == PipelineOptions.TermVectorSource.NORMALIZED_STEMS) {
-        stemmer = normalizingStemmer(stemmer, options.termVectors().rungs());
+        stemmer = normalizingStemmer(stemmer, options.termVectors().steps());
       }
       if (stemmer != null) {
         builder.add(new StemmerAnnotator(stemmer));
@@ -310,8 +310,8 @@ public final class AnalysisPipeline {
 
     // Stem-sourced term vectors group occurrences service-side by the stems
     // layer. For token-sourced vectors the aligned TermVectorAnnotator runs
-    // when every rung can report an alignment; a chain containing a
-    // JDK/regex-backed rung (NFKC, confusable skeleton, accent/case fold,
+    // when every step can report an alignment; a chain containing a
+    // JDK/regex-backed step (NFKC, confusable skeleton, accent/case fold,
     // URL/number/social/shrink) goes through the per-token annotator, which
     // needs no alignment because occurrence spans are the token spans.
     if (options.termVectors() != null
@@ -320,10 +320,10 @@ public final class AnalysisPipeline {
       final TermVectorAnnotator.Mode mode =
           spec.mode() == PipelineOptions.TermVectorMode.SCORING_ONLY
               ? TermVectorAnnotator.Mode.SCORING_ONLY : TermVectorAnnotator.Mode.FULL;
-      if (spec.rungs().stream().allMatch(PipelineOptions.NormalizerRung::isOffsetAware)) {
-        builder.add(new TermVectorAnnotator(alignedNormalizer(spec.rungs()), mode));
+      if (spec.steps().stream().allMatch(PipelineOptions.NormalizerStep::isOffsetAware)) {
+        builder.add(new TermVectorAnnotator(alignedNormalizer(spec.steps()), mode));
       } else {
-        builder.add(new PerTokenTermVectorAnnotator(normalizerChain(spec.rungs()), mode));
+        builder.add(new PerTokenTermVectorAnnotator(normalizerChain(spec.steps()), mode));
       }
     }
 
@@ -379,110 +379,110 @@ public final class AnalysisPipeline {
   }
 
   /**
-   * Builds the aligned normalizer for the requested rungs. Rungs apply in the
+   * Builds the aligned normalizer for the requested steps. Steps apply in the
    * fixed order of the OpenNLP builder, independent of request order, so equal
-   * rung sets always produce equal normalizers. {@code buildAligned()} yields
+   * step sets always produce equal normalizers. {@code buildAligned()} yields
    * an {@link OffsetAwareNormalizer}: term identity is computed on normalized
    * text while every occurrence span stays in original text coordinates.
    */
   /**
-   * Wraps a stemmer so the normalizer rung chain runs on each token before
+   * Wraps a stemmer so the normalizer step chain runs on each token before
    * it is stemmed, making the stem of the normalized form the term
    * identity.
    *
-   * <p>This is deliberately the same rung list the token path would use, so
+   * <p>This is deliberately the same step list the token path would use, so
    * NORMALIZED_STEMS and TOKENS agree on what "the same word" means and
    * differ only in whether the stemmer then applies.
    */
   private static Stemmer normalizingStemmer(
-      Stemmer delegate, List<PipelineOptions.NormalizerRung> rungs) {
-    final CharSequenceNormalizer normalizer = normalizerChain(rungs);
+      Stemmer delegate, List<PipelineOptions.NormalizerStep> steps) {
+    final CharSequenceNormalizer normalizer = normalizerChain(steps);
     return text -> delegate.stem(normalizer.normalize(text));
   }
 
-  /** The rung chain as a plain normalizer (no offset alignment needed: the
+  /** The step chain as a plain normalizer (no offset alignment needed: the
    * token's offsets come from the tokenizer, not from its stemmed form). */
   private static CharSequenceNormalizer normalizerChain(
-      List<PipelineOptions.NormalizerRung> rungs) {
-    return normalizerBuilder(rungs).build();
+      List<PipelineOptions.NormalizerStep> steps) {
+    return normalizerBuilder(steps).build();
   }
 
   private static OffsetAwareNormalizer alignedNormalizer(
-      List<PipelineOptions.NormalizerRung> rungs) {
-    return normalizerBuilder(rungs).buildAligned();
+      List<PipelineOptions.NormalizerStep> steps) {
+    return normalizerBuilder(steps).buildAligned();
   }
 
-  /** Populates a normalizer builder from the rung list; the two build
+  /** Populates a normalizer builder from the step list; the two build
    * methods (aligned for term vectors, plain for the stemmer decorator)
    * must see the SAME chain or the two sources would disagree on
    * identity. */
   private static TextNormalizer.Builder normalizerBuilder(
-      List<PipelineOptions.NormalizerRung> rungs) {
+      List<PipelineOptions.NormalizerStep> steps) {
     final TextNormalizer.Builder builder = TextNormalizer.builder();
     // Compatibility normalization first: it rewrites the characters every
-    // later rung matches on (full-width forms, ligatures, …).
-    if (rungs.contains(PipelineOptions.NormalizerRung.NFKC)) {
+    // later step matches on (full-width forms, ligatures, …).
+    if (steps.contains(PipelineOptions.NormalizerStep.NFKC)) {
       builder.nfkc();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.NFC)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.NFC)) {
       builder.nfc();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.STRIP_INVISIBLE)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.STRIP_INVISIBLE)) {
       builder.stripInvisible();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.WHITESPACE)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.WHITESPACE)) {
       builder.whitespace();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.LINE_BREAK_PRESERVING_WHITESPACE)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.LINE_BREAK_PRESERVING_WHITESPACE)) {
       builder.whitespacePreservingLineBreaks();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.DASHES)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.DASHES)) {
       builder.dashes();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.QUOTES)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.QUOTES)) {
       builder.quotes();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.DIGITS)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.DIGITS)) {
       builder.digits();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.URL)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.URL)) {
       builder.with(UrlCharSequenceNormalizer.getInstance());
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.NUMBER)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.NUMBER)) {
       builder.with(NumberCharSequenceNormalizer.getInstance());
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.SOCIAL_MEDIA)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.SOCIAL_MEDIA)) {
       builder.with(SocialMediaCharSequenceNormalizer.getInstance());
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.SHRINK)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.SHRINK)) {
       builder.with(ShrinkCharSequenceNormalizer.getInstance());
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.CONFUSABLE_SKELETON)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.CONFUSABLE_SKELETON)) {
       builder.with(ConfusableSkeletonCharSequenceNormalizer.getInstance());
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.ACCENT_FOLD)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.ACCENT_FOLD)) {
       builder.accentFold();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.CASE_FOLD)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.CASE_FOLD)) {
       builder.caseFold();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.ELLIPSIS)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.ELLIPSIS)) {
       builder.ellipsis();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.BULLETS)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.BULLETS)) {
       builder.bullets();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.EMOJI_TO_EMOTICON)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.EMOJI_TO_EMOTICON)) {
       builder.emojiToEmoticon();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.EMOTICON_TO_EMOJI)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.EMOTICON_TO_EMOJI)) {
       builder.emoticonToEmoji();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.FULL_CASE_FOLD)) {
+    if (steps.contains(PipelineOptions.NormalizerStep.FULL_CASE_FOLD)) {
       builder.fullCaseFold();
     }
-    if (rungs.contains(PipelineOptions.NormalizerRung.GERMAN_UMLAUT)) {
-      // No dedicated builder method, but the rung is offset-aware and composes.
+    if (steps.contains(PipelineOptions.NormalizerStep.GERMAN_UMLAUT)) {
+      // No dedicated builder method, but the step is offset-aware and composes.
       builder.with(GermanUmlautCharSequenceNormalizer.getInstance());
     }
     return builder;

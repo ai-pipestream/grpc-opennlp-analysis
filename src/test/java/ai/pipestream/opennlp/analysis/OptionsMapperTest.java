@@ -36,47 +36,47 @@ import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
  */
 class OptionsMapperTest {
 
-  @ParameterizedTest(name = "{0} maps to the same-named pipeline rung")
-  @EnumSource(value = TermVectorOptions.NormalizerRung.class,
-      names = {"NORMALIZER_RUNG_UNSPECIFIED", "UNRECOGNIZED"},
+  @ParameterizedTest(name = "{0} maps to the same-named pipeline step")
+  @EnumSource(value = TermVectorOptions.NormalizerStep.class,
+      names = {"NORMALIZER_STEP_UNSPECIFIED", "UNRECOGNIZED"},
       mode = EnumSource.Mode.EXCLUDE)
-  void everyProtoRungMapsToAPipelineRung(TermVectorOptions.NormalizerRung rung) {
+  void everyProtoStepMapsToAPipelineStep(TermVectorOptions.NormalizerStep step) {
     final PipelineOptions options = OptionsMapper.fromProto(
         AnalysisOptions.newBuilder()
             .setTermVectors(TermVectorOptions.newBuilder()
                 .setEnabled(true)
-                .addRungs(rung))
+                .addSteps(step))
             .build());
 
-    assertThat(options.termVectors().rungs())
-        .containsExactly(PipelineOptions.NormalizerRung.valueOf(
-            rung.name().substring("NORMALIZER_RUNG_".length())));
+    assertThat(options.termVectors().steps())
+        .containsExactly(PipelineOptions.NormalizerStep.valueOf(
+            step.name().substring("NORMALIZER_STEP_".length())));
   }
 
   @Test
-  void unspecifiedRungsAreIgnored() {
+  void unspecifiedStepsAreIgnored() {
     final PipelineOptions options = OptionsMapper.fromProto(
         AnalysisOptions.newBuilder()
             .setTermVectors(TermVectorOptions.newBuilder()
                 .setEnabled(true)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_UNSPECIFIED)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_DASHES))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_UNSPECIFIED)
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_DASHES))
             .build());
 
-    assertThat(options.termVectors().rungs())
-        .containsExactly(PipelineOptions.NormalizerRung.DASHES);
+    assertThat(options.termVectors().steps())
+        .containsExactly(PipelineOptions.NormalizerStep.DASHES);
   }
 
   @Test
-  void protoAndPipelineRungEnumsStayInLockstep() {
+  void protoAndPipelineStepEnumsStayInLockstep() {
     // The mapping is name-based; this test fails loudly when one enum gains a
-    // value the other lacks, instead of silently dropping a rung at runtime.
-    assertThat(Arrays.stream(TermVectorOptions.NormalizerRung.values())
-        .filter(r -> r != TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_UNSPECIFIED
-            && r != TermVectorOptions.NormalizerRung.UNRECOGNIZED)
-        .map(r -> r.name().substring("NORMALIZER_RUNG_".length())))
+    // value the other lacks, instead of silently dropping a step at runtime.
+    assertThat(Arrays.stream(TermVectorOptions.NormalizerStep.values())
+        .filter(r -> r != TermVectorOptions.NormalizerStep.NORMALIZER_STEP_UNSPECIFIED
+            && r != TermVectorOptions.NormalizerStep.UNRECOGNIZED)
+        .map(r -> r.name().substring("NORMALIZER_STEP_".length())))
         .containsExactlyInAnyOrderElementsOf(
-            Arrays.stream(PipelineOptions.NormalizerRung.values())
+            Arrays.stream(PipelineOptions.NormalizerStep.values())
                 .map(Enum::name).toList());
   }
 }

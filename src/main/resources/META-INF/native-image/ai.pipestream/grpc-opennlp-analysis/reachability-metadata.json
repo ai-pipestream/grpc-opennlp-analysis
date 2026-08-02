@@ -10,7 +10,66 @@
           ]
         }
       ]
-    }
+    },
+    {
+      "type": "opennlp.tools.postag.POSTaggerFactory",
+      "methods": [
+        { "name": "<init>", "parameterTypes": [] }
+      ]
+    },
+    {
+      "type": "opennlp.tools.namefind.TokenNameFinderFactory",
+      "methods": [
+        { "name": "<init>", "parameterTypes": [] }
+      ]
+    },
+    {
+      "type": "opennlp.tools.ml.maxent.io.GISModelReader",
+      "methods": [
+        { "name": "<init>", "parameterTypes": ["opennlp.tools.ml.model.DataReader"] }
+      ]
+    },
+    {
+      "type": "opennlp.tools.ml.maxent.io.QNModelReader",
+      "methods": [
+        { "name": "<init>", "parameterTypes": ["opennlp.tools.ml.model.DataReader"] }
+      ]
+    },
+    {
+      "type": "opennlp.tools.ml.perceptron.PerceptronModelReader",
+      "methods": [
+        { "name": "<init>", "parameterTypes": ["opennlp.tools.ml.model.DataReader"] }
+      ]
+    },
+    {
+      "type": "opennlp.tools.ml.naivebayes.NaiveBayesModelReader",
+      "methods": [
+        { "name": "<init>", "parameterTypes": ["opennlp.tools.ml.model.DataReader"] }
+      ]
+    },
+    { "type": "opennlp.tools.util.featuregen.AggregatedFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.BigramNameFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.BrownClusterBigramFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.BrownClusterTokenClassFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.BrownClusterTokenFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.CachedFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.CharacterNgramFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.DefinitionFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.DictionaryFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.DocumentBeginFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.EmojiAnnotationFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.PosTaggerFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.POSTaggerNameFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.PrefixFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.PreviousMapFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.SentenceFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.SuffixFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.TokenClassFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.TokenFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.TokenPatternFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.TrigramNameFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.WindowFeatureGeneratorFactory", "allDeclaredConstructors": true },
+    { "type": "opennlp.tools.util.featuregen.WordClusterFeatureGeneratorFactory", "allDeclaredConstructors": true }
   ],
   "resources": [
     { "glob": "**/*.proto" },

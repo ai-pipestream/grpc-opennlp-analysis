@@ -84,8 +84,8 @@ class AnalysisServiceImplTest {
             .setTermVectors(TermVectorOptions.newBuilder()
                 .setEnabled(true)
                 .setMode(TermVectorOptions.Mode.MODE_FULL)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_WHITESPACE)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_WHITESPACE)
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
     assertThat(response.getSentencesCount()).isEqualTo(1);
@@ -108,7 +108,7 @@ class AnalysisServiceImplTest {
   }
 
   @Test
-  void mixedRungChainWithANonOffsetAwareRungWorksOverTheWire() {
+  void mixedStepChainWithANonOffsetAwareStepWorksOverTheWire() {
     // NFKC (full-width fold) cannot report an alignment, so this chain runs
     // through the per-token annotator; FULL_CASE_FOLD composes with it. Both
     // surface forms collapse to one term with original-text occurrence spans.
@@ -118,9 +118,9 @@ class AnalysisServiceImplTest {
             .setTermVectors(TermVectorOptions.newBuilder()
                 .setEnabled(true)
                 .setMode(TermVectorOptions.Mode.MODE_FULL)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_NFKC)
-                .addRungs(
-                    TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_NFKC)
+                .addSteps(
+                    TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
     assertThat(response.getTermVectorsCount()).isEqualTo(1);
@@ -139,8 +139,8 @@ class AnalysisServiceImplTest {
             .setTermVectors(TermVectorOptions.newBuilder()
                 .setEnabled(true)
                 .setMode(TermVectorOptions.Mode.MODE_SCORING_ONLY)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_WHITESPACE)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_WHITESPACE)
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
     assertThat(response.getTermVectorsCount()).isEqualTo(1);
@@ -252,16 +252,16 @@ class AnalysisServiceImplTest {
             "STEMMER_SNOWBALL_TURKISH", "STEMMER_MINIMAL_SWEDISH",
             "STEMMER_LIGHT_NORWEGIAN_NYNORSK", "STEMMER_HUNSPELL")
         .doesNotContain("STEMMER_UNSPECIFIED");
-    assertThat(capabilities.getNormalizerRungsList())
-        .contains("NORMALIZER_RUNG_FULL_CASE_FOLD", "NORMALIZER_RUNG_GERMAN_UMLAUT",
-            "NORMALIZER_RUNG_ELLIPSIS", "NORMALIZER_RUNG_BULLETS",
-            "NORMALIZER_RUNG_EMOJI_TO_EMOTICON", "NORMALIZER_RUNG_EMOTICON_TO_EMOJI",
-            "NORMALIZER_RUNG_NFKC", "NORMALIZER_RUNG_NFC",
-            "NORMALIZER_RUNG_CONFUSABLE_SKELETON", "NORMALIZER_RUNG_ACCENT_FOLD",
-            "NORMALIZER_RUNG_CASE_FOLD",
-            "NORMALIZER_RUNG_LINE_BREAK_PRESERVING_WHITESPACE",
-            "NORMALIZER_RUNG_URL", "NORMALIZER_RUNG_NUMBER",
-            "NORMALIZER_RUNG_SOCIAL_MEDIA", "NORMALIZER_RUNG_SHRINK");
+    assertThat(capabilities.getNormalizerStepsList())
+        .contains("NORMALIZER_STEP_FULL_CASE_FOLD", "NORMALIZER_STEP_GERMAN_UMLAUT",
+            "NORMALIZER_STEP_ELLIPSIS", "NORMALIZER_STEP_BULLETS",
+            "NORMALIZER_STEP_EMOJI_TO_EMOTICON", "NORMALIZER_STEP_EMOTICON_TO_EMOJI",
+            "NORMALIZER_STEP_NFKC", "NORMALIZER_STEP_NFC",
+            "NORMALIZER_STEP_CONFUSABLE_SKELETON", "NORMALIZER_STEP_ACCENT_FOLD",
+            "NORMALIZER_STEP_CASE_FOLD",
+            "NORMALIZER_STEP_LINE_BREAK_PRESERVING_WHITESPACE",
+            "NORMALIZER_STEP_URL", "NORMALIZER_STEP_NUMBER",
+            "NORMALIZER_STEP_SOCIAL_MEDIA", "NORMALIZER_STEP_SHRINK");
     assertThat(capabilities.getTokenizersList())
         .containsExactlyInAnyOrder("TOKENIZER_WHITESPACE", "TOKENIZER_SIMPLE",
             "TOKENIZER_UAX29", "TOKENIZER_LATTICE", "TOKENIZER_SENTENCEPIECE");

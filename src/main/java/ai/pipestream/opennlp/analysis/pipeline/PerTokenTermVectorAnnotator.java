@@ -34,8 +34,8 @@ import opennlp.tools.util.Span;
 import opennlp.tools.util.normalizer.CharSequenceNormalizer;
 
 /**
- * Term vector annotator for rung chains that cannot report a character
- * alignment. Rungs such as NFKC, confusable-skeleton folding, or accent/case
+ * Term vector annotator for step chains that cannot report a character
+ * alignment. Steps such as NFKC, confusable-skeleton folding, or accent/case
  * folding delegate to {@link java.text.Normalizer}, JDK case mapping, or
  * regexes and therefore cannot compose into the aligned whole-document chain
  * that {@link TermVectorAnnotator} requires.
@@ -43,12 +43,12 @@ import opennlp.tools.util.normalizer.CharSequenceNormalizer;
  * <p>This annotator normalizes each token's covered text on its own and
  * groups by the result — no alignment is needed, because occurrence spans are
  * the token layer's own spans and those are already in original text
- * coordinates. For the offset-aware rungs the two computations agree (token
- * text never contains the whitespace those rungs rewrite), so the choice of
+ * coordinates. For the offset-aware steps the two computations agree (token
+ * text never contains the whitespace those steps rewrite), so the choice of
  * annotator is invisible in the output: same layer key, same first-occurrence
  * order, same span semantics.</p>
  *
- * <p>Thread safety: stateless beyond the normalizer, which the rung
+ * <p>Thread safety: stateless beyond the normalizer, which the step
  * implementations keep thread-safe.</p>
  */
 final class PerTokenTermVectorAnnotator implements DocumentAnnotator {

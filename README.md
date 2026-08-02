@@ -30,7 +30,7 @@ call, paced by server-side flow control.
 Every `Span` in every response is expressed in the character offsets of the
 **original request text** — even for terms produced over normalized text.
 Term identity runs through OpenNLP's offset-aware `Alignment`: with the
-`FULL_CASE_FOLD` rung, `"Groß"`, `"groß"`, and `"GROSS"` collapse into one term
+`FULL_CASE_FOLD` step, `"Groß"`, `"groß"`, and `"GROSS"` collapse into one term
 `gross`, while each occurrence still carries its exact original span
 (`[0,4)`, `[6,10)`, `[12,17)`). This is what makes **true highlighting**
 possible for both BM25 and vector search results: you can always paint the
@@ -62,7 +62,7 @@ grpcurl -plaintext -d '{
     "termVectors": {
       "enabled": true,
       "mode": "MODE_FULL",
-      "rungs": ["NORMALIZER_RUNG_WHITESPACE", "NORMALIZER_RUNG_FULL_CASE_FOLD"]
+      "steps": ["NORMALIZER_STEP_WHITESPACE", "NORMALIZER_STEP_FULL_CASE_FOLD"]
     }
   }
 }' localhost:50051 ai.pipestream.opennlp.analysis.v1.AnalysisService/Analyze
@@ -101,7 +101,7 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
 | `ner` | bool | `false` | Needs a server-configured NER model; otherwise a warning, no entities |
 | `stemmer` | `Stemmer` | `STEMMER_NONE` | See stemmers below. One stem per token, parallel to `tokens` |
 | `lemmatize` | bool | `false` | Needs a server-configured lemmatizer dictionary; otherwise a warning, no lemmas |
-| `term_vectors` | `TermVectorOptions` | disabled | `enabled`, `mode` (`MODE_FULL` with occurrence spans / `MODE_SCORING_ONLY` frequency only), `rungs`, `source` (`SOURCE_TOKENS` / `SOURCE_STEMS` / `SOURCE_NORMALIZED_STEMS`) |
+| `term_vectors` | `TermVectorOptions` | disabled | `enabled`, `mode` (`MODE_FULL` with occurrence spans / `MODE_SCORING_ONLY` frequency only), `steps`, `source` (`SOURCE_TOKENS` / `SOURCE_STEMS` / `SOURCE_NORMALIZED_STEMS`) |
 | `embeddings` | `EmbeddingOptions` | disabled | `source`: `SOURCE_SENTENCES` (chunk embeddings) or `SOURCE_TOKENS` |
 | `noise` | bool | `false` | Model-free structural noise scoring (OCR damage, gibberish, base64-ish stretches) |
 | `artifacts` | bool | `false` | Model-free text-artifact flagging (replacement chars, mojibake, …). Flags only; never rewrites text |
@@ -204,11 +204,11 @@ the shared cached pipelines stay thread-safe.
 `TermVectorOptions.source` decides what a term **is**:
 
 - `SOURCE_TOKENS` (default): terms are token surface forms after the aligned
-  normalizer chain; the rungs define identity (`Groß`/`GROSS` collapse under
+  normalizer chain; the steps define identity (`Groß`/`GROSS` collapse under
   `FULL_CASE_FOLD`).
 - `SOURCE_STEMS`: **the stem is the identity** — every occurrence of
   `running`/`runs`/`run` groups under `run`, with the occurrence spans of
-  every token carrying that stem, in original-text coordinates. The rungs are
+  every token carrying that stem, in original-text coordinates. The steps are
   ignored in this mode. This is the shape turbovec's BM25 indexing consumes:
   document frequencies and postings over stems, highlightable through the
   original spans. Requires a stemmer (`STEMMER_NONE` → `INVALID_ARGUMENT`).
@@ -234,10 +234,10 @@ when no POS model produced tags, every token looks up with the neutral empty
 tag, so tag-agnostic dictionaries work. Unknown words come back as `"O"`.
 Unconfigured → warning, no lemmas.
 
-### Normalizer rungs
+### Normalizer steps
 
-`rungs` on `TermVectorOptions` select the normalizer chain used for term
-identity (token-sourced vectors only): `NORMALIZER_RUNG_STRIP_INVISIBLE`,
+`steps` on `TermVectorOptions` select the normalizer chain used for term
+identity (token-sourced vectors only): `NORMALIZER_STEP_STRIP_INVISIBLE`,
 `..._WHITESPACE`, `..._DASHES`, `..._QUOTES`, `..._DIGITS`,
 `..._FULL_CASE_FOLD`, `..._ELLIPSIS`, `..._BULLETS`,
 `..._EMOJI_TO_EMOTICON`, `..._EMOTICON_TO_EMOJI`, `..._GERMAN_UMLAUT`
@@ -246,12 +246,12 @@ identity (token-sourced vectors only): `NORMALIZER_RUNG_STRIP_INVISIBLE`,
 folding), `..._ACCENT_FOLD`, `..._CASE_FOLD` (simple fold; keeps `ß`),
 `..._LINE_BREAK_PRESERVING_WHITESPACE`, `..._URL`, `..._NUMBER`,
 `..._SOCIAL_MEDIA`, and `..._SHRINK` (repeated-character runs shrink to two).
-Rungs apply in the OpenNLP builder's fixed order regardless of request order.
-When `enabled` is set with no rungs, the default chain is
+Steps apply in the OpenNLP builder's fixed order regardless of request order.
+When `enabled` is set with no steps, the default chain is
 `STRIP_INVISIBLE + WHITESPACE + FULL_CASE_FOLD` — the chain BM25 consumers
-usually want. Normalization never breaks original-text offsets: rungs that
+usually want. Normalization never breaks original-text offsets: steps that
 can report a character alignment compose into the aligned whole-document
-chain; the JDK/regex-backed rungs (NFKC, NFC, confusable skeleton, accent and
+chain; the JDK/regex-backed steps (NFKC, NFC, confusable skeleton, accent and
 case fold, URL, number, social media, shrink) cannot and are applied per
 token instead — occurrence spans are the token spans either way.
 
@@ -262,7 +262,7 @@ versions, `embeddings_enabled` + model dir, POS/NER availability,
 `hunspell_available` and `lemmatizer_available` (dictionary configured or
 not), `lattice_available`, `sentencepiece_available`, and
 `dependency_parse_available` (tokenizer/parser files configured or not), the
-max text size, and the supported stemmer/rung/tokenizer option names. Noise
+max text size, and the supported stemmer/step/tokenizer option names. Noise
 scoring, artifact flagging, glossary matching, and PII extraction are
 model-free and always available, so they carry no availability flags.
 
@@ -321,10 +321,10 @@ archive-path-escape rejection.
 Installing a catalog entry prints the exact `OPENNLP_*` exports to hand the
 server. The catalog currently covers the LibreOffice Hunspell English (US)
 dictionary; anything else (a MeCab dictionary tarball, a SentencePiece
-`.model`, a feedforward dependency model) installs by URL. Note that
-POS/NER `.bin` model LOADING additionally needs the preview fork's
-`opennlp.version` fix (its `3.x-preview-SNAPSHOT` string does not parse);
-dictionary and custom-format model paths are unaffected.
+`.model`, a feedforward dependency model, a POS/NER `.bin`) installs by URL.
+POS/NER model loading relies on the build's generated `opennlp.version`
+resource (see `build.gradle`): the fork's own version string does not parse,
+and the generated parseable rendition shadows it on the classpath.
 
 ## Configuration
 

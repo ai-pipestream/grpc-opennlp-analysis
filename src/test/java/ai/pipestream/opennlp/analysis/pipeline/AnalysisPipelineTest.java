@@ -49,8 +49,8 @@ class AnalysisPipelineTest {
         PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
-            List.of(PipelineOptions.NormalizerRung.WHITESPACE,
-                PipelineOptions.NormalizerRung.FULL_CASE_FOLD)),
+            List.of(PipelineOptions.NormalizerStep.WHITESPACE,
+                PipelineOptions.NormalizerStep.FULL_CASE_FOLD)),
         null);
 
     final Document document = create(options).analyze(CASE_FOLD_SAMPLE);
@@ -77,8 +77,8 @@ class AnalysisPipelineTest {
         PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.SCORING_ONLY,
-            List.of(PipelineOptions.NormalizerRung.WHITESPACE,
-                PipelineOptions.NormalizerRung.FULL_CASE_FOLD)),
+            List.of(PipelineOptions.NormalizerStep.WHITESPACE,
+                PipelineOptions.NormalizerStep.FULL_CASE_FOLD)),
         null);
 
     final Document document = create(options).analyze(CASE_FOLD_SAMPLE);
@@ -92,7 +92,7 @@ class AnalysisPipelineTest {
   }
 
   @Test
-  void defaultRungsApplyWhenNoneAreRequested() {
+  void defaultStepsApplyWhenNoneAreRequested() {
     final PipelineOptions options = new PipelineOptions("en",
         PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
@@ -104,7 +104,7 @@ class AnalysisPipelineTest {
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
-    // Default rungs include full case folding, so both forms collapse.
+    // Default steps include full case folding, so both forms collapse.
     assertThat(vectors).hasSize(1);
     assertThat(vectors.get(0).value().term()).isEqualTo("gross");
     assertThat(vectors.get(0).value().frequency()).isEqualTo(2);
@@ -222,17 +222,17 @@ class AnalysisPipelineTest {
         PipelineOptions.Tokenizer.WHITESPACE, true, false, false, false,
         PipelineOptions.Stemmer.PORTER,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
-            List.of(PipelineOptions.NormalizerRung.WHITESPACE,
-                PipelineOptions.NormalizerRung.FULL_CASE_FOLD)),
+            List.of(PipelineOptions.NormalizerStep.WHITESPACE,
+                PipelineOptions.NormalizerStep.FULL_CASE_FOLD)),
         null);
-    // Same rungs in a different order with a duplicate must canonicalize equal.
+    // Same steps in a different order with a duplicate must canonicalize equal.
     final PipelineOptions b = new PipelineOptions("en",
         PipelineOptions.Tokenizer.WHITESPACE, true, false, false, false,
         PipelineOptions.Stemmer.PORTER,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
-            List.of(PipelineOptions.NormalizerRung.FULL_CASE_FOLD,
-                PipelineOptions.NormalizerRung.WHITESPACE,
-                PipelineOptions.NormalizerRung.WHITESPACE)),
+            List.of(PipelineOptions.NormalizerStep.FULL_CASE_FOLD,
+                PipelineOptions.NormalizerStep.WHITESPACE,
+                PipelineOptions.NormalizerStep.WHITESPACE)),
         null);
 
     assertThat(b).isEqualTo(a);

@@ -51,8 +51,8 @@ final class OptionsMapper {
       }
       termVectors = new PipelineOptions.TermVectorSpec(
           termVectorMode(proto.getTermVectors().getMode()),
-          proto.getTermVectors().getRungsList().stream()
-              .map(OptionsMapper::rung)
+          proto.getTermVectors().getStepsList().stream()
+              .map(OptionsMapper::step)
               .filter(Objects::nonNull)
               .toList(),
           source);
@@ -157,21 +157,21 @@ final class OptionsMapper {
   }
 
   /**
-   * Proto {@code NORMALIZER_RUNG_*} names map onto
-   * {@link PipelineOptions.NormalizerRung} by stripping the prefix.
-   * UNSPECIFIED rungs are ignored per the contract.
+   * Proto {@code NORMALIZER_STEP_*} names map onto
+   * {@link PipelineOptions.NormalizerStep} by stripping the prefix.
+   * UNSPECIFIED steps are ignored per the contract.
    */
-  private static PipelineOptions.NormalizerRung rung(
-      TermVectorOptions.NormalizerRung value) {
-    if (value == TermVectorOptions.NormalizerRung.UNRECOGNIZED) {
+  private static PipelineOptions.NormalizerStep step(
+      TermVectorOptions.NormalizerStep value) {
+    if (value == TermVectorOptions.NormalizerStep.UNRECOGNIZED) {
       throw Status.INVALID_ARGUMENT
-          .withDescription("unrecognized normalizer rung value").asRuntimeException();
+          .withDescription("unrecognized normalizer step value").asRuntimeException();
     }
-    if (value == TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_UNSPECIFIED) {
+    if (value == TermVectorOptions.NormalizerStep.NORMALIZER_STEP_UNSPECIFIED) {
       return null;
     }
-    return PipelineOptions.NormalizerRung.valueOf(
-        value.name().substring("NORMALIZER_RUNG_".length()));
+    return PipelineOptions.NormalizerStep.valueOf(
+        value.name().substring("NORMALIZER_STEP_".length()));
   }
 
   private static PipelineOptions.EmbeddingSource embeddingSource(

@@ -65,9 +65,11 @@ class ModelBackedLayersTest {
   private static ManagedChannel geoChannel;
   private static AnalysisServiceGrpc.AnalysisServiceBlockingStub geoStub;
 
+  private static POSModel posModel;
+
   @BeforeAll
   static void setUp() throws Exception {
-    final POSModel posModel = TestModels.trainPosModel();
+    posModel = TestModels.trainPosModel();
     final TokenNameFinderModel personNer = TestModels.trainNerModel("person");
     final TokenNameFinderModel locationNer = TestModels.trainNerModel("location");
     final FeedforwardDependencyModel dependencyModel = TestModels.trainDependencyModel();
@@ -248,6 +250,25 @@ class ModelBackedLayersTest {
     // No lattice/SentencePiece files are configured on this server.
     assertThat(capabilities.getLatticeAvailable()).isFalse();
     assertThat(capabilities.getSentencepieceAvailable()).isFalse();
+  }
+
+  @Test
+  void posModelRoundTripsThroughAModelFile(@org.junit.jupiter.api.io.TempDir
+                                           java.nio.file.Path tempDir)
+      throws Exception {
+    // The production load path (OPENNLP_POS_MODEL): serialize, then reload
+    // from disk through BaseModel. This is the path the fork's broken
+    // opennlp.version resource used to break; the build's generated version
+    // resource makes it work.
+    final java.nio.file.Path modelFile = tempDir.resolve("pos.bin");
+    try (var out = java.nio.file.Files.newOutputStream(modelFile)) {
+      posModel.serialize(out);
+    }
+
+    final POSModel reloaded = new POSModel(modelFile);
+    final String[] tags = new opennlp.tools.postag.POSTaggerME(reloaded)
+        .tag(new String[] {"John", "Smith", "won", "the", "case"});
+    assertThat(tags).containsExactly("PROPN", "PROPN", "VERB", "DET", "NOUN");
   }
 
   @Test

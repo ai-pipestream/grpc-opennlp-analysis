@@ -39,9 +39,7 @@ import opennlp.tools.util.TrainingParameters;
 
 /**
  * Tiny in-memory trained models for the model-backed integration tests.
- * Loading model files is broken in this preview build (the opennlp.version
- * resource does not parse), but in-memory training works on the test
- * classpath, so every model here is trained from a memorized micro-corpus in
+ * Every model here is trained from a memorized micro-corpus in
  * {@code @BeforeAll}. Each distinct sample is repeated so the maxent and
  * feedforward trainers memorize the exact sentences the tests assert on.
  */

@@ -92,9 +92,9 @@ class AnalysisServerIntegrationTest {
             .setTermVectors(TermVectorOptions.newBuilder()
                 .setEnabled(true)
                 .setMode(TermVectorOptions.Mode.MODE_FULL)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_STRIP_INVISIBLE)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_WHITESPACE)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_STRIP_INVISIBLE)
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_WHITESPACE)
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
     assertThat(response.getSentencesCount()).isEqualTo(2);

@@ -202,16 +202,16 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
 
   /** Which layer supplies term identity. */
   public enum TermVectorSource {
-    /** Group by normalized token text; the rungs define identity. */
+    /** Group by normalized token text; the steps define identity. */
     TOKENS,
-    /** Group by stem; the stem alone defines identity, rungs ignored. */
+    /** Group by stem; the stem alone defines identity, steps ignored. */
     STEMS,
-    /** Group by the stem of the normalized token; rungs run, then the stemmer. */
+    /** Group by the stem of the normalized token; steps run, then the stemmer. */
     NORMALIZED_STEMS
   }
 
-  /** One rung of the aligned normalizer chain. */
-  public enum NormalizerRung {
+  /** One step of the aligned normalizer chain. */
+  public enum NormalizerStep {
     /** Removes invisible characters. */
     STRIP_INVISIBLE,
     /** Collapses whitespace runs to a single space. */
@@ -256,12 +256,12 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
     SHRINK;
 
     /**
-     * Whether this rung can report a character alignment and so compose into
-     * the aligned whole-document chain. The JDK/regex-backed rungs (Unicode
+     * Whether this step can report a character alignment and so compose into
+     * the aligned whole-document chain. The JDK/regex-backed steps (Unicode
      * normalization, confusable/accent/case folding, and the URL/number/
      * social-media/shrink rewrites) cannot; they run per token instead.
      *
-     * @return {@code true} when the rung is offset-aware
+     * @return {@code true} when the step is offset-aware
      */
     public boolean isOffsetAware() {
       return switch (this) {
@@ -322,42 +322,42 @@ public record PipelineOptions(String language, Tokenizer tokenizer, boolean sent
    * Term vector configuration.
    *
    * @param mode recording mode
-   * @param rungs normalizer rungs for term identity; empty selects the server
-   *              default ({@link #DEFAULT_RUNGS}); ignored when
+   * @param steps normalizer steps for term identity; empty selects the server
+   *              default ({@link #DEFAULT_STEPS}); ignored when
    *              {@code source} is {@link TermVectorSource#STEMS}
    * @param source term identity source
    */
-  public record TermVectorSpec(TermVectorMode mode, List<NormalizerRung> rungs,
+  public record TermVectorSpec(TermVectorMode mode, List<NormalizerStep> steps,
                                TermVectorSource source) {
 
-    /** Default rungs: strip invisible, collapse whitespace, full case fold. */
-    public static final List<NormalizerRung> DEFAULT_RUNGS =
-        List.of(NormalizerRung.STRIP_INVISIBLE, NormalizerRung.WHITESPACE,
-            NormalizerRung.FULL_CASE_FOLD);
+    /** Default steps: strip invisible, collapse whitespace, full case fold. */
+    public static final List<NormalizerStep> DEFAULT_STEPS =
+        List.of(NormalizerStep.STRIP_INVISIBLE, NormalizerStep.WHITESPACE,
+            NormalizerStep.FULL_CASE_FOLD);
 
     /**
-     * Canonicalizes the rungs: empty resolves to {@link #DEFAULT_RUNGS}, and
-     * duplicates are removed and the order normalized, so equal rung sets
+     * Canonicalizes the steps: empty resolves to {@link #DEFAULT_STEPS}, and
+     * duplicates are removed and the order normalized, so equal step sets
      * produce equal keys (and equal normalizers) regardless of request order.
      *
      * @param mode recording mode
-     * @param rungs requested rungs, possibly empty
+     * @param steps requested steps, possibly empty
      * @param source term identity source
      */
     public TermVectorSpec {
-      rungs = rungs == null || rungs.isEmpty()
-          ? DEFAULT_RUNGS : rungs.stream().distinct().sorted().toList();
+      steps = steps == null || steps.isEmpty()
+          ? DEFAULT_STEPS : steps.stream().distinct().sorted().toList();
       source = source == null ? TermVectorSource.TOKENS : source;
     }
 
     /**
-     * Token-source convenience: same as {@code TermVectorSpec(mode, rungs, TOKENS)}.
+     * Token-source convenience: same as {@code TermVectorSpec(mode, steps, TOKENS)}.
      *
      * @param mode recording mode
-     * @param rungs requested rungs, possibly empty
+     * @param steps requested steps, possibly empty
      */
-    public TermVectorSpec(TermVectorMode mode, List<NormalizerRung> rungs) {
-      this(mode, rungs, TermVectorSource.TOKENS);
+    public TermVectorSpec(TermVectorMode mode, List<NormalizerStep> steps) {
+      this(mode, steps, TermVectorSource.TOKENS);
     }
   }
 

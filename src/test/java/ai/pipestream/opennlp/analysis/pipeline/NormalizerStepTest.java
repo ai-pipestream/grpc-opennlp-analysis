@@ -32,28 +32,28 @@ import opennlp.tools.termvector.TermVectorAnnotator;
 import opennlp.tools.util.Span;
 
 /**
- * The additional aligned normalizer rungs: term identity follows the rungs,
+ * The additional aligned normalizer steps: term identity follows the steps,
  * occurrence spans stay in original text coordinates.
  */
-class NormalizerRungTest {
+class NormalizerStepTest {
 
-  private static Document analyze(String text, PipelineOptions.NormalizerRung... rungs) {
+  private static Document analyze(String text, PipelineOptions.NormalizerStep... steps) {
     final PipelineOptions options = new PipelineOptions("en",
         PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
-            List.of(rungs)),
+            List.of(steps)),
         null);
     return AnalysisPipeline.create(options, PipelineEnvironment.empty()).analyze(text);
   }
 
   @Test
-  void germanUmlautRungExpandsAfterCaseFolding() {
-    // FULL_CASE_FOLD applies before GERMAN_UMLAUT in the fixed rung order, so
+  void germanUmlautStepExpandsAfterCaseFolding() {
+    // FULL_CASE_FOLD applies before GERMAN_UMLAUT in the fixed step order, so
     // "Müller" folds to "müller" and then expands to "mueller".
     final Document document = analyze("Müller Mueller",
-        PipelineOptions.NormalizerRung.FULL_CASE_FOLD,
-        PipelineOptions.NormalizerRung.GERMAN_UMLAUT);
+        PipelineOptions.NormalizerStep.FULL_CASE_FOLD,
+        PipelineOptions.NormalizerStep.GERMAN_UMLAUT);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -65,10 +65,10 @@ class NormalizerRungTest {
   }
 
   @Test
-  void ellipsisRungCollapsesEllipsisCharacters() {
+  void ellipsisStepCollapsesEllipsisCharacters() {
     final Document document = analyze("a … b ...",
-        PipelineOptions.NormalizerRung.WHITESPACE,
-        PipelineOptions.NormalizerRung.ELLIPSIS);
+        PipelineOptions.NormalizerStep.WHITESPACE,
+        PipelineOptions.NormalizerStep.ELLIPSIS);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -85,10 +85,10 @@ class NormalizerRungTest {
   }
 
   @Test
-  void digitsRungNormalizesUnicodeDigits() {
+  void digitsStepNormalizesUnicodeDigits() {
     final Document document = analyze("x４2 x42",
-        PipelineOptions.NormalizerRung.WHITESPACE,
-        PipelineOptions.NormalizerRung.DIGITS);
+        PipelineOptions.NormalizerStep.WHITESPACE,
+        PipelineOptions.NormalizerStep.DIGITS);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -99,10 +99,10 @@ class NormalizerRungTest {
   }
 
   @Test
-  void nfkcRungFoldsLigatures() {
+  void nfkcStepFoldsLigatures() {
     // U+FB01 LATIN SMALL LIGATURE FI expands to "fi" under NFKC.
     final Document document = analyze("ﬁle file",
-        PipelineOptions.NormalizerRung.NFKC);
+        PipelineOptions.NormalizerStep.NFKC);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -116,10 +116,10 @@ class NormalizerRungTest {
   }
 
   @Test
-  void nfcRungComposesAccentedCharacters() {
+  void nfcStepComposesAccentedCharacters() {
     // Composed é (U+00E9) and decomposed e + U+0301 collapse to one term.
     final Document document = analyze("café café",
-        PipelineOptions.NormalizerRung.NFC);
+        PipelineOptions.NormalizerStep.NFC);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -130,10 +130,10 @@ class NormalizerRungTest {
   }
 
   @Test
-  void confusableSkeletonRungFoldsHomoglyphs() {
+  void confusableSkeletonStepFoldsHomoglyphs() {
     // "paypal" spelled with a Cyrillic а (U+0430) collapses onto the Latin form.
     final Document document = analyze("pаypal paypal",
-        PipelineOptions.NormalizerRung.CONFUSABLE_SKELETON);
+        PipelineOptions.NormalizerStep.CONFUSABLE_SKELETON);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -143,9 +143,9 @@ class NormalizerRungTest {
   }
 
   @Test
-  void accentFoldRungStripsDiacriticsWithoutCaseFolding() {
+  void accentFoldStepStripsDiacriticsWithoutCaseFolding() {
     final Document document = analyze("Café cafe",
-        PipelineOptions.NormalizerRung.ACCENT_FOLD);
+        PipelineOptions.NormalizerStep.ACCENT_FOLD);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -155,9 +155,9 @@ class NormalizerRungTest {
   }
 
   @Test
-  void caseFoldRungLowercasesWithoutExpandingSharpS() {
+  void caseFoldStepLowercasesWithoutExpandingSharpS() {
     final Document document = analyze("COURT court Straße",
-        PipelineOptions.NormalizerRung.CASE_FOLD);
+        PipelineOptions.NormalizerStep.CASE_FOLD);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -167,11 +167,11 @@ class NormalizerRungTest {
   }
 
   @Test
-  void lineBreakPreservingWhitespaceRungKeepsOffsetsAcrossLineBreaks() {
-    // The rung is offset-aware and composes into the aligned chain; line
+  void lineBreakPreservingWhitespaceStepKeepsOffsetsAcrossLineBreaks() {
+    // The step is offset-aware and composes into the aligned chain; line
     // structure survives while occurrence spans stay exact.
     final Document document = analyze("one\n\n\ntwo two",
-        PipelineOptions.NormalizerRung.LINE_BREAK_PRESERVING_WHITESPACE);
+        PipelineOptions.NormalizerStep.LINE_BREAK_PRESERVING_WHITESPACE);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -182,9 +182,9 @@ class NormalizerRungTest {
   }
 
   @Test
-  void urlRungReplacesUrlsWithASpace() {
+  void urlStepReplacesUrlsWithASpace() {
     final Document document = analyze("visit https://example.com/page now",
-        PipelineOptions.NormalizerRung.URL);
+        PipelineOptions.NormalizerStep.URL);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -196,9 +196,9 @@ class NormalizerRungTest {
   }
 
   @Test
-  void numberRungReplacesDigitRunsWithASpace() {
+  void numberStepReplacesDigitRunsWithASpace() {
     final Document document = analyze("order 12345 end",
-        PipelineOptions.NormalizerRung.NUMBER);
+        PipelineOptions.NormalizerStep.NUMBER);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -207,9 +207,9 @@ class NormalizerRungTest {
   }
 
   @Test
-  void socialMediaRungReplacesHashtagsAndHandles() {
+  void socialMediaStepReplacesHashtagsAndHandles() {
     final Document document = analyze("#topic @user hello",
-        PipelineOptions.NormalizerRung.SOCIAL_MEDIA);
+        PipelineOptions.NormalizerStep.SOCIAL_MEDIA);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -222,9 +222,9 @@ class NormalizerRungTest {
   }
 
   @Test
-  void shrinkRungCollapsesRepeatedCharacters() {
+  void shrinkStepCollapsesRepeatedCharacters() {
     final Document document = analyze("Helllllloooooo",
-        PipelineOptions.NormalizerRung.SHRINK);
+        PipelineOptions.NormalizerStep.SHRINK);
 
     final List<Annotation<TermVector>> vectors =
         document.get(TermVectorAnnotator.TERM_VECTORS);
@@ -233,13 +233,13 @@ class NormalizerRungTest {
   }
 
   @ParameterizedTest(name = "{0} builds and analyzes")
-  @EnumSource(PipelineOptions.NormalizerRung.class)
-  void everyRungBuildsAnOffsetAwarePipeline(PipelineOptions.NormalizerRung rung) {
+  @EnumSource(PipelineOptions.NormalizerStep.class)
+  void everyStepBuildsAnOffsetAwarePipeline(PipelineOptions.NormalizerStep step) {
     final PipelineOptions options = new PipelineOptions("en",
         PipelineOptions.Tokenizer.WHITESPACE, false, false, false, false,
         PipelineOptions.Stemmer.NONE,
         new PipelineOptions.TermVectorSpec(PipelineOptions.TermVectorMode.FULL,
-            List.of(rung)),
+            List.of(step)),
         null);
     final Document document =
         AnalysisPipeline.create(options, PipelineEnvironment.empty())

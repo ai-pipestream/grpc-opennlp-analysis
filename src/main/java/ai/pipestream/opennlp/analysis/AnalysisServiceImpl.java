@@ -326,11 +326,11 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED
                 && s != AnalysisOptions.Stemmer.UNRECOGNIZED)
             .map(Enum::name).toList())
-        .addAllNormalizerRungs(java.util.Arrays.stream(
-                TermVectorOptions.NormalizerRung.values())
-            .filter(r -> r != TermVectorOptions.NormalizerRung
-                .NORMALIZER_RUNG_UNSPECIFIED
-                && r != TermVectorOptions.NormalizerRung.UNRECOGNIZED)
+        .addAllNormalizerSteps(java.util.Arrays.stream(
+                TermVectorOptions.NormalizerStep.values())
+            .filter(r -> r != TermVectorOptions.NormalizerStep
+                .NORMALIZER_STEP_UNSPECIFIED
+                && r != TermVectorOptions.NormalizerStep.UNRECOGNIZED)
             .map(Enum::name).toList())
         .addAllTokenizers(java.util.Arrays.stream(AnalysisOptions.Tokenizer.values())
             .filter(t -> t != AnalysisOptions.Tokenizer.TOKENIZER_UNSPECIFIED

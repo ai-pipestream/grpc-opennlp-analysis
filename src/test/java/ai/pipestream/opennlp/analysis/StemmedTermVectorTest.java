@@ -40,7 +40,7 @@ import io.grpc.inprocess.InProcessServerBuilder;
 
 /**
  * Stem-sourced term vectors: the stem is the term identity, occurrences keep
- * their original-text token spans, and the normalizer rungs are ignored.
+ * their original-text token spans, and the normalizer steps are ignored.
  */
 class StemmedTermVectorTest {
 
@@ -105,7 +105,7 @@ class StemmedTermVectorTest {
   }
 
   @Test
-  void rungsAreIgnoredForIdentityInStemMode() {
+  void stepsAreIgnoredForIdentityInStemMode() {
     // FULL_CASE_FOLD would lowercase a token-sourced term; in stem mode the
     // raw surface form feeds the stemmer, and Porter is case-sensitive.
     final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
@@ -113,7 +113,7 @@ class StemmedTermVectorTest {
         .setOptions(AnalysisOptions.newBuilder()
             .setStemmer(AnalysisOptions.Stemmer.STEMMER_PORTER)
             .setTermVectors(stemmed(TermVectorOptions.Mode.MODE_FULL)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
     assertThat(response.getTermVectorsList())
@@ -135,10 +135,10 @@ class StemmedTermVectorTest {
   }
 
   @Test
-  void normalizedStemsAcceptTheNonOffsetAwareRungs() {
-    // NORMALIZED_STEMS runs the rung chain (plain, per token) before the
+  void normalizedStemsAcceptTheNonOffsetAwareSteps() {
+    // NORMALIZED_STEMS runs the step chain (plain, per token) before the
     // stemmer. NFKC cannot report an alignment; this proves the fold-then-stem
-    // path takes the new rungs: full-width "ＦＩＳＨＩＮＧ" folds to "FISHING",
+    // path takes the new steps: full-width "ＦＩＳＨＩＮＧ" folds to "FISHING",
     // case-folds to "fishing", and stems to "fish", grouping with "fishing".
     final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
         .setText("ＦＩＳＨＩＮＧ fishing")
@@ -148,9 +148,9 @@ class StemmedTermVectorTest {
                 .setEnabled(true)
                 .setSource(TermVectorOptions.Source.SOURCE_NORMALIZED_STEMS)
                 .setMode(TermVectorOptions.Mode.MODE_FULL)
-                .addRungs(TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_NFKC)
-                .addRungs(
-                    TermVectorOptions.NormalizerRung.NORMALIZER_RUNG_FULL_CASE_FOLD)))
+                .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_NFKC)
+                .addSteps(
+                    TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
     assertThat(response.getTermVectorsCount()).isEqualTo(1);
