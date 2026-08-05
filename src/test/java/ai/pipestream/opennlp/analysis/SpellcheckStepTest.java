@@ -173,7 +173,7 @@ class SpellcheckStepTest {
       SymSpellModels.serialize(tinyModel(), out);
     }
     final ServiceConfig config = new ServiceConfig(0, 1024 * 1024, null, null, null,
-        null, null, null, null, null, null, null, null, modelFile, 0);
+        null, null, null, null, null, null, null, null, modelFile, 0, null, 0, 0);
 
     final PipelineEnvironment environment = PipelineEnvironment.load(config);
 

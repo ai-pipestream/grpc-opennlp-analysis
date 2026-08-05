@@ -92,7 +92,7 @@ class NerModelListTest {
     // boundary rather than making every reader null-check a collection.
     final ServiceConfig config = new ServiceConfig(
         0, 1024, null, null, (java.util.List<Path>) null,
-        null, null, null, null, null, null, null, null, null, 0);
+        null, null, null, null, null, null, null, null, null, 0, null, 0, 0);
     assertThat(config.nerModelPaths()).isEmpty();
   }
 }

@@ -17,6 +17,9 @@
 
 package ai.pipestream.opennlp.analysis;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -24,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import ai.pipestream.opennlp.analysis.config.ServiceConfig;
 import ai.pipestream.opennlp.analysis.pipeline.PipelineEnvironment;
+import ai.pipestream.opennlp.analysis.vocab.VocabularyListener;
 import io.grpc.Server;
 import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
@@ -59,22 +63,48 @@ public final class AnalysisServer {
     final PipelineEnvironment environment = PipelineEnvironment.load(config);
     final HealthStatusManager health = new HealthStatusManager();
 
-    final Server server = NettyServerBuilder.forPort(config.port())
+    // The vocabulary listener is absent unless OPENNLP_VOCAB_DIR is set. A
+    // configured but unusable directory degrades to disabled with a loud
+    // GetCapabilities warning — vocabulary statistics must never take the
+    // analysis service down.
+    final List<String> serverWarnings = new ArrayList<>();
+    VocabularyListener vocabularyListener = null;
+    if (config.vocabDir() != null) {
+      try {
+        vocabularyListener = new VocabularyListener(config.vocabDir(),
+            config.vocabWindowDocs(), config.vocabTopK(), config.embeddingsDir());
+      } catch (IOException | RuntimeException e) {
+        final String warning = "OPENNLP_VOCAB_DIR is set to " + config.vocabDir()
+            + " but the vocabulary listener could not start: " + e.getMessage()
+            + "; vocabulary statistics are disabled, analysis is unaffected";
+        LOG.error("Vocabulary listener disabled", e);
+        serverWarnings.add(warning);
+      }
+    }
+
+    final NettyServerBuilder builder = NettyServerBuilder.forPort(config.port())
         // The transport cap must track the configured text cap: Netty's
         // 4 MiB default would reject requests OPENNLP_MAX_TEXT_BYTES allows.
         .maxInboundMessageSize(Math.max(4 * 1024 * 1024, config.maxTextBytes() + 1024 * 1024))
         // Eager headers make call acceptance visible before the first
         // result, which AnalyzeStream clients await before submitting.
         .addService(io.grpc.ServerInterceptors.intercept(
-            new AnalysisServiceImpl(environment, config), new EagerHeadersInterceptor()))
+            new AnalysisServiceImpl(environment, config, vocabularyListener,
+                serverWarnings), new EagerHeadersInterceptor()))
         .addService(health.getHealthService())
-        .addService(ProtoReflectionServiceV1.newInstance())
-        .build()
-        .start();
+        .addService(ProtoReflectionServiceV1.newInstance());
+    if (vocabularyListener != null) {
+      builder.addService(new VocabServiceImpl(vocabularyListener));
+    }
+    final Server server = builder.build().start();
 
     health.setStatus("", HealthCheckResponse.ServingStatus.SERVING);
     health.setStatus("ai.pipestream.opennlp.analysis.v1.AnalysisService",
         HealthCheckResponse.ServingStatus.SERVING);
+    if (vocabularyListener != null) {
+      health.setStatus("ai.pipestream.opennlp.analysis.v1.VocabularyService",
+          HealthCheckResponse.ServingStatus.SERVING);
+    }
 
     LOG.info("OpenNLP analysis service listening on port {} (opennlp {})",
         server.getPort(), Versions.opennlp());

@@ -63,6 +63,14 @@ import java.util.List;
  * @param streamWorkers number of analysis worker threads serving
  *                      AnalyzeStream calls; {@code 0} selects the
  *                      processor count
+ * @param vocabDir snapshot directory of the vocabulary listener, or
+ *                 {@code null} to run with the listener disabled (zero
+ *                 overhead, VocabularyService not registered)
+ * @param vocabWindowDocs documents per vocabulary window before automatic
+ *                        snapshot rollover; non-positive selects
+ *                        {@link #DEFAULT_VOCAB_WINDOW_DOCS}
+ * @param vocabTopK heavy-hitter list size per channel; non-positive selects
+ *                  {@link #DEFAULT_VOCAB_TOP_K}
  */
 public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                             Path posModelPath, List<Path> nerModelPaths,
@@ -70,7 +78,8 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                             Path lemmatizerDictPath, Path latticeDicDir,
                             Path sentencePieceModelPath, Path depparseModelPath,
                             Path wordnetDir, Path morfologikDictPath,
-                            Path spellcheckModelPath, int streamWorkers) {
+                            Path spellcheckModelPath, int streamWorkers,
+                            Path vocabDir, long vocabWindowDocs, int vocabTopK) {
 
   /**
    * Normalizes the NER model list. Every other model setting says
@@ -80,6 +89,8 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
    */
   public ServiceConfig {
     nerModelPaths = nerModelPaths == null ? List.of() : List.copyOf(nerModelPaths);
+    vocabWindowDocs = vocabWindowDocs > 0 ? vocabWindowDocs : DEFAULT_VOCAB_WINDOW_DOCS;
+    vocabTopK = vocabTopK > 0 ? vocabTopK : DEFAULT_VOCAB_TOP_K;
   }
 
   /** Default gRPC listen port. */
@@ -87,6 +98,12 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
 
   /** Default request text size cap: 1 MiB. */
   public static final int DEFAULT_MAX_TEXT_BYTES = 1024 * 1024;
+
+  /** Default vocabulary window: one million documents per snapshot. */
+  public static final long DEFAULT_VOCAB_WINDOW_DOCS = 1_000_000L;
+
+  /** Default heavy-hitter list size per channel. */
+  public static final int DEFAULT_VOCAB_TOP_K = 1024;
 
   /** Without the tokenizer/parser models and with an auto-sized stream worker
    * pool. */
@@ -96,7 +113,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path lemmatizerDictPath) {
     this(port, maxTextBytes, embeddingsDir, posModelPath, one(nerModelPath),
         hunspellAffPath, hunspellDicPath, lemmatizerDictPath, null, null, null, null,
-        null, null, 0);
+        null, null, 0, null, 0, 0);
   }
 
   /** Auto-sized stream worker pool (the processor count). */
@@ -107,7 +124,7 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
                        Path sentencePieceModelPath, Path depparseModelPath) {
     this(port, maxTextBytes, embeddingsDir, posModelPath, one(nerModelPath),
         hunspellAffPath, hunspellDicPath, lemmatizerDictPath, latticeDicDir,
-        sentencePieceModelPath, depparseModelPath, null, null, null, 0);
+        sentencePieceModelPath, depparseModelPath, null, null, null, 0, null, 0, 0);
   }
 
   /**
@@ -151,7 +168,12 @@ public record ServiceConfig(int port, int maxTextBytes, Path embeddingsDir,
         path(setting("OPENNLP_MORFOLOGIK_DICT", "opennlp.morfologik.dict", null)),
         path(setting("OPENNLP_SPELLCHECK_MODEL", "opennlp.spellcheck.model", null)),
         Integer.parseInt(setting(
-            "OPENNLP_STREAM_WORKERS", "opennlp.stream.workers", "0")));
+            "OPENNLP_STREAM_WORKERS", "opennlp.stream.workers", "0")),
+        path(setting("OPENNLP_VOCAB_DIR", "opennlp.vocab.dir", null)),
+        Long.parseLong(setting("OPENNLP_VOCAB_WINDOW_DOCS",
+            "opennlp.vocab.window.docs", Long.toString(DEFAULT_VOCAB_WINDOW_DOCS))),
+        Integer.parseInt(setting("OPENNLP_VOCAB_TOP_K",
+            "opennlp.vocab.top.k", Integer.toString(DEFAULT_VOCAB_TOP_K))));
   }
 
   private static String setting(String envVar, String property, String fallback) {

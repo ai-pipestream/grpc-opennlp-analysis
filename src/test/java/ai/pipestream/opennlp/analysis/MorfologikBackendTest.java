@@ -68,7 +68,7 @@ class MorfologikBackendTest {
 
   private static ServiceConfig configWithMorfologik(Path dict) {
     return new ServiceConfig(0, 1024 * 1024, null, null, null, null, null, null,
-        null, null, null, null, dict, null, 0);
+        null, null, null, null, dict, null, 0, null, 0, 0);
   }
 
   @BeforeEach
@@ -115,7 +115,8 @@ class MorfologikBackendTest {
   @Test
   void wordNetWinsOverMorfologikWithAWarning() throws Exception {
     final ServiceConfig both = new ServiceConfig(0, 1024 * 1024, null, null, null,
-        null, null, null, null, null, null, wordnetDir(), morfologikDict(), null, 0);
+        null, null, null, null, null, null, wordnetDir(), morfologikDict(), null, 0,
+        null, 0, 0);
 
     final PipelineEnvironment environment = PipelineEnvironment.load(both);
 
@@ -131,7 +132,8 @@ class MorfologikBackendTest {
     final Path flatDict = tempDir.resolve("lemmas.tsv");
     Files.writeString(flatDict, "dogs\t\tdog\n");
     final ServiceConfig both = new ServiceConfig(0, 1024 * 1024, null, null, null,
-        null, null, flatDict, null, null, null, null, morfologikDict(), null, 0);
+        null, null, flatDict, null, null, null, null, morfologikDict(), null, 0,
+        null, 0, 0);
 
     final PipelineEnvironment environment = PipelineEnvironment.load(both);
 

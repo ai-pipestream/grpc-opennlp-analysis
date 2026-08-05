@@ -52,6 +52,7 @@ import ai.pipestream.opennlp.analysis.v1.Span;
 import ai.pipestream.opennlp.analysis.v1.TermVector;
 import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
 import ai.pipestream.opennlp.analysis.v1.Token;
+import ai.pipestream.opennlp.analysis.vocab.VocabularyListener;
 import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
@@ -88,6 +89,16 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
   private final ConcurrentHashMap<PipelineOptions, AnalysisPipeline> pipelines =
       new ConcurrentHashMap<>();
 
+  // The vocabulary listener on the AnalyzeStream ingest path, or null when
+  // OPENNLP_VOCAB_DIR is unset (zero overhead, VocabularyService not
+  // registered). Deliberately fed only from the stream path: unary Analyze
+  // is the query path, and query text does not belong in corpus statistics.
+  private final VocabularyListener vocabularyListener;
+
+  // Startup-level warnings beyond the model-load ones (an unwritable
+  // OPENNLP_VOCAB_DIR), reported in GetCapabilities.
+  private final List<String> serverWarnings;
+
   // AnalyzeStream workers, shared across streams. The in-flight window each
   // stream grants through manual flow control is derived from this pool's
   // size, so capacity is declared exactly where the CPU lives instead of
@@ -100,11 +111,27 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
    * @param config server configuration, must not be {@code null}
    */
   public AnalysisServiceImpl(PipelineEnvironment environment, ServiceConfig config) {
+    this(environment, config, null, List.of());
+  }
+
+  /**
+   * @param environment shared model resources, must not be {@code null}
+   * @param config server configuration, must not be {@code null}
+   * @param vocabularyListener the vocabulary listener fed from AnalyzeStream,
+   *                           or {@code null} when the feature is disabled
+   * @param serverWarnings startup-level warnings to report in
+   *                       GetCapabilities, or {@code null}
+   */
+  public AnalysisServiceImpl(PipelineEnvironment environment, ServiceConfig config,
+                             VocabularyListener vocabularyListener,
+                             List<String> serverWarnings) {
     if (environment == null || config == null) {
       throw new IllegalArgumentException("environment and config must not be null");
     }
     this.environment = environment;
     this.config = config;
+    this.vocabularyListener = vocabularyListener;
+    this.serverWarnings = serverWarnings == null ? List.of() : List.copyOf(serverWarnings);
     final int workers = config.resolvedStreamWorkers();
     final AtomicInteger names = new AtomicInteger();
     this.streamWorkers = Executors.newFixedThreadPool(workers, runnable -> {
@@ -243,7 +270,21 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       try {
         final String text = validatedText(doc.getText());
         final Document document = pipeline.analyze(text);
-        response.setOk(toResponse(document, pipeline, environment.lemmatizer()));
+        final AnalyzeResponse analyzed =
+            toResponse(document, pipeline, environment.lemmatizer());
+        response.setOk(analyzed);
+        // Vocabulary statistics harvest the ingest path for free: the term
+        // identity the BM25 index stores (TERMS) and the surface forms the
+        // embedding model must cover (TOKENS). Only successful documents
+        // count; the listener never throws into ingest.
+        if (vocabularyListener != null) {
+          vocabularyListener.feed(
+              analyzed.getTermVectorsList().stream()
+                  .map(tv -> new VocabularyListener.TermFrequency(
+                      tv.getTerm(), tv.getFrequency()))
+                  .toList(),
+              analyzed.getTokensList().stream().map(Token::getText).toList());
+        }
       } catch (io.grpc.StatusRuntimeException e) {
         response.setError(AnalyzeStreamError.newBuilder()
             .setCode(e.getStatus().getCode().value())
@@ -324,6 +365,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         .setDualTermIdentityAvailable(true)
         .setSpellcheckAvailable(environment.spellcheckModel() != null)
         .setDehyphenationAvailable(true)
+        .setVocabListenerAvailable(vocabularyListener != null)
         .setMaxTextBytes(config.maxTextBytes())
         .addAllStemmers(java.util.Arrays.stream(AnalysisOptions.Stemmer.values())
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED
@@ -340,6 +382,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
                 && t != AnalysisOptions.Tokenizer.UNRECOGNIZED)
             .map(Enum::name).toList())
         .addAllWarnings(environment.loadWarnings())
+        .addAllWarnings(serverWarnings)
         .build());
     observer.onCompleted();
   }
