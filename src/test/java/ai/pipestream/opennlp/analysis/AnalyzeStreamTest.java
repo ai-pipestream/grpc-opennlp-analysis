@@ -41,6 +41,7 @@ import ai.pipestream.opennlp.analysis.v1.AnalyzeResponse;
 import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamDoc;
 import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamRequest;
 import ai.pipestream.opennlp.analysis.v1.AnalyzeStreamResponse;
+import ai.pipestream.opennlp.analysis.v1.OffsetUnit;
 import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
@@ -141,10 +142,13 @@ class AnalyzeStreamTest {
 
   @Test
   void streamMatchesUnaryExactly() throws Exception {
-    final AnalysisOptions options = bm25Options();
+    final AnalysisOptions options = bm25Options().toBuilder()
+        .setTokenizer(AnalysisOptions.Tokenizer.TOKENIZER_UAX29)
+        .setOffsetUnit(OffsetUnit.OFFSET_UNIT_UTF8_BYTES)
+        .build();
     final String[] texts = new String[40];
     for (int i = 0; i < texts.length; i++) {
-      texts[i] = "The appellate court " + i + " affirmed the ruling; judges "
+      texts[i] = "😀 The appellate court " + i + " affirmed the ruling; judges "
           + "were running proceedings " + "swiftly ".repeat(1 + i % 7) + "here.";
     }
 
@@ -163,7 +167,11 @@ class AnalyzeStreamTest {
     assertThat(bySequence).hasSize(texts.length);
     for (int i = 0; i < texts.length; i++) {
       final AnalyzeStreamResponse response = bySequence.get((long) i);
-      assertThat(response.hasOk()).as("sequence %d is ok", i).isTrue();
+      assertThat(response.hasOk())
+          .as("sequence %d is ok: %s", i, response.getError())
+          .isTrue();
+      assertThat(response.getOk().getOffsetUnit())
+          .isEqualTo(OffsetUnit.OFFSET_UNIT_UTF8_BYTES);
       final AnalyzeResponse unary = blocking.analyze(AnalyzeRequest.newBuilder()
           .setText(texts[i]).setOptions(options).build());
       assertThat(response.getOk()).as("sequence %d equals unary", i).isEqualTo(unary);

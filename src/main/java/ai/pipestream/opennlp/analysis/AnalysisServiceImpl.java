@@ -48,6 +48,7 @@ import ai.pipestream.opennlp.analysis.v1.ChunkEmbedding;
 import ai.pipestream.opennlp.analysis.v1.Entity;
 import ai.pipestream.opennlp.analysis.v1.GetCapabilitiesRequest;
 import ai.pipestream.opennlp.analysis.v1.GetCapabilitiesResponse;
+import ai.pipestream.opennlp.analysis.v1.OffsetUnit;
 import ai.pipestream.opennlp.analysis.v1.Span;
 import ai.pipestream.opennlp.analysis.v1.TermVector;
 import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
@@ -153,7 +154,8 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       final AnalysisPipeline pipeline =
           pipelines.computeIfAbsent(options, o -> AnalysisPipeline.create(o, environment));
       final Document document = pipeline.analyze(text);
-      observer.onNext(toResponse(document, pipeline, environment.lemmatizer()));
+      observer.onNext(toResponse(document, pipeline, environment.lemmatizer(),
+          resolvedOffsetUnit(request.getOptions().getOffsetUnit())));
       observer.onCompleted();
     } catch (io.grpc.StatusRuntimeException e) {
       observer.onError(e);
@@ -195,6 +197,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicBoolean finished = new AtomicBoolean();
     private volatile AnalysisPipeline pipeline;
+    private volatile OffsetUnit offsetUnit;
     private volatile boolean clientDone;
     private volatile boolean cancelled;
 
@@ -222,6 +225,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         return;
       }
       try {
+        offsetUnit = resolvedOffsetUnit(options.getOffsetUnit());
         final PipelineOptions mapped = OptionsMapper.fromProto(options);
         pipeline = pipelines.computeIfAbsent(mapped,
             o -> AnalysisPipeline.create(o, environment));
@@ -271,7 +275,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         final String text = validatedText(doc.getText());
         final Document document = pipeline.analyze(text);
         final AnalyzeResponse analyzed =
-            toResponse(document, pipeline, environment.lemmatizer());
+            toResponse(document, pipeline, environment.lemmatizer(), offsetUnit);
         response.setOk(analyzed);
         // Vocabulary statistics harvest the ingest path for free: the term
         // identity the BM25 index stores (TERMS) and the surface forms the
@@ -366,6 +370,8 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         .setSpellcheckAvailable(environment.spellcheckModel() != null)
         .setDehyphenationAvailable(true)
         .setVocabListenerAvailable(vocabularyListener != null)
+        .addSupportedOffsetUnits(OffsetUnit.OFFSET_UNIT_UTF16_CODE_UNITS)
+        .addSupportedOffsetUnits(OffsetUnit.OFFSET_UNIT_UTF8_BYTES)
         .setMaxTextBytes(config.maxTextBytes())
         .addAllStemmers(java.util.Arrays.stream(AnalysisOptions.Stemmer.values())
             .filter(s -> s != AnalysisOptions.Stemmer.STEMMER_UNSPECIFIED
@@ -407,17 +413,20 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
   }
 
   /**
-   * Maps the annotated document onto the response. Every span is copied
-   * through unchanged: the layers are already in original text coordinates —
-   * that is the offset-fidelity guarantee of the contract.
+   * Maps the annotated document onto the response. The pipeline's spans are
+   * in original-text UTF-16 coordinates; the response encoder changes only
+   * their coordinate unit.
    */
   private static AnalyzeResponse toResponse(Document document, AnalysisPipeline pipeline,
-                                            Lemmatizer lemmatizer) {
-    final AnalyzeResponse.Builder response = AnalyzeResponse.newBuilder();
+                                            Lemmatizer lemmatizer,
+                                            OffsetUnit offsetUnit) {
     final CharSequence text = document.text();
+    final SpanEncoder spanEncoder = new SpanEncoder(text, offsetUnit);
+    final AnalyzeResponse.Builder response = AnalyzeResponse.newBuilder()
+        .setOffsetUnit(offsetUnit);
 
     for (Annotation<String> sentence : document.get(Layers.SENTENCES)) {
-      response.addSentences(span(sentence.span()));
+      response.addSentences(spanEncoder.encode(sentence.span()));
     }
 
     final Map<opennlp.tools.util.Span, String> posBySpan = bySpan(
@@ -428,7 +437,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     final List<Annotation<String>> tokens = document.get(Layers.TOKENS);
     for (Annotation<String> token : tokens) {
       final Token.Builder out = Token.newBuilder()
-          .setSpan(span(token.span()))
+          .setSpan(spanEncoder.encode(token.span()))
           .setText(token.span().getCoveredText(text).toString());
       final String pos = posBySpan.get(token.span());
       if (pos != null) {
@@ -462,7 +471,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
 
     for (Annotation<String> entity : document.get(Layers.ENTITIES)) {
       response.addEntities(Entity.newBuilder()
-          .setSpan(span(entity.span()))
+          .setSpan(spanEncoder.encode(entity.span()))
           .setType(entity.value())
           .setText(entity.span().getCoveredText(text).toString()));
     }
@@ -470,7 +479,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     for (Annotation<opennlp.tools.noise.NoiseSpan> finding
         : document.get(NoiseAnnotator.NOISE)) {
       response.addNoise(ai.pipestream.opennlp.analysis.v1.NoiseSpan.newBuilder()
-          .setSpan(span(finding.value().span()))
+          .setSpan(spanEncoder.encode(finding.value().span()))
           .setSeverity(finding.value().severity())
           .setScore(finding.value().score()));
     }
@@ -478,7 +487,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     for (Annotation<opennlp.tools.artifacts.TextArtifact> artifact
         : document.get(ArtifactAnnotator.ARTIFACTS)) {
       response.addArtifacts(ai.pipestream.opennlp.analysis.v1.TextArtifact.newBuilder()
-          .setSpan(span(artifact.value().span()))
+          .setSpan(spanEncoder.encode(artifact.value().span()))
           .setType(artifact.value().type()));
     }
 
@@ -486,7 +495,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         : document.get(GlossaryAnnotator.GLOSSARY)) {
       response.addGlossaryMatches(
           ai.pipestream.opennlp.analysis.v1.GlossaryMatch.newBuilder()
-              .setSpan(span(match.value().span()))
+              .setSpan(spanEncoder.encode(match.value().span()))
               .setId(match.value().id())
               .setTerm(match.value().term()));
     }
@@ -494,7 +503,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     for (Annotation<opennlp.tools.pii.PiiMention> mention
         : document.get(PiiAnnotator.PII)) {
       response.addPii(ai.pipestream.opennlp.analysis.v1.PiiMention.newBuilder()
-          .setSpan(span(mention.value().span()))
+          .setSpan(spanEncoder.encode(mention.value().span()))
           .setType(mention.value().type())
           .setNormalized(mention.value().normalized()));
     }
@@ -503,7 +512,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         : document.get(CorefAnnotator.CHAINS)) {
       response.addCorefMentions(
           ai.pipestream.opennlp.analysis.v1.CorefMention.newBuilder()
-              .setSpan(span(mention.span()))
+              .setSpan(spanEncoder.encode(mention.span()))
               .setChain(mention.value().chain())
               .setKind(mention.value().kind())
               .setEntity(mention.value().entity()));
@@ -513,7 +522,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         : document.get(DependencyAnnotator.DEPENDENCIES)) {
       response.addDependencies(
           ai.pipestream.opennlp.analysis.v1.DependencyArc.newBuilder()
-              .setSpan(span(arc.span()))
+              .setSpan(spanEncoder.encode(arc.span()))
               .setHead(arc.value().head())
               .setDependent(arc.value().dependent())
               .setRelation(arc.value().relation()));
@@ -523,7 +532,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
         : document.get(RelationAnnotator.RELATIONS)) {
       response.addRelations(
           ai.pipestream.opennlp.analysis.v1.RelationMention.newBuilder()
-              .setSpan(span(relation.span()))
+              .setSpan(spanEncoder.encode(relation.span()))
               .setType(relation.value().type())
               .setSubject(relation.value().subject())
               .setObject(relation.value().object()));
@@ -534,7 +543,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
       final opennlp.tools.geo.GeoResolution resolution = location.value();
       final ai.pipestream.opennlp.analysis.v1.GeoLocation.Builder out =
           ai.pipestream.opennlp.analysis.v1.GeoLocation.newBuilder()
-              .setSpan(span(resolution.mention()))
+              .setSpan(spanEncoder.encode(resolution.mention()))
               .setConfidence(resolution.confidence());
       final opennlp.tools.geo.GazetteerEntry entry = resolution.entry();
       if (entry != null) {
@@ -582,7 +591,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
             .setTerm(stem)
             .setFrequency(spans.size());
         if (full) {
-          spans.forEach(occurrence -> out.addOccurrences(span(occurrence)));
+          spans.forEach(occurrence -> out.addOccurrences(spanEncoder.encode(occurrence)));
         }
         response.addTermVectors(out);
       });
@@ -603,7 +612,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
               .setTerm(stem)
               .setFrequency(spans.size());
           if (full) {
-            spans.forEach(occurrence -> out.addOccurrences(span(occurrence)));
+            spans.forEach(occurrence -> out.addOccurrences(spanEncoder.encode(occurrence)));
           }
           response.addCasedTermVectors(out);
         });
@@ -616,7 +625,8 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
             .setTerm(vector.term())
             .setFrequency(vector.frequency());
         if (vector.spans() != null) {
-          vector.spans().forEach(occurrence -> out.addOccurrences(span(occurrence)));
+          vector.spans().forEach(occurrence -> out.addOccurrences(
+              spanEncoder.encode(occurrence)));
         }
         response.addTermVectors(out);
       }
@@ -640,7 +650,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
               .setTerm(term)
               .setFrequency(spans.size());
           if (full) {
-            spans.forEach(occurrence -> out.addOccurrences(span(occurrence)));
+            spans.forEach(occurrence -> out.addOccurrences(spanEncoder.encode(occurrence)));
           }
           response.addCasedTermVectors(out);
         });
@@ -650,7 +660,7 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     if (pipeline.embeddingLayer() != null) {
       for (Annotation<float[]> embedding : document.get(pipeline.embeddingLayer())) {
         final ChunkEmbedding.Builder out = ChunkEmbedding.newBuilder()
-            .setSpan(span(embedding.span()))
+            .setSpan(spanEncoder.encode(embedding.span()))
             .setText(embedding.span().getCoveredText(text).toString());
         for (float component : embedding.value()) {
           out.addVector(component);
@@ -663,8 +673,79 @@ public final class AnalysisServiceImpl extends AnalysisServiceGrpc.AnalysisServi
     return response.build();
   }
 
-  private static Span span(opennlp.tools.util.Span span) {
-    return Span.newBuilder().setStart(span.getStart()).setEnd(span.getEnd()).build();
+  private static OffsetUnit resolvedOffsetUnit(OffsetUnit requested) {
+    return switch (requested) {
+      case OFFSET_UNIT_UNSPECIFIED, OFFSET_UNIT_UTF16_CODE_UNITS ->
+          OffsetUnit.OFFSET_UNIT_UTF16_CODE_UNITS;
+      case OFFSET_UNIT_UTF8_BYTES -> OffsetUnit.OFFSET_UNIT_UTF8_BYTES;
+      case UNRECOGNIZED -> throw new IllegalArgumentException(
+          "unrecognized AnalysisOptions.offset_unit");
+    };
+  }
+
+  /** Converts original-text OpenNLP spans without changing their boundaries. */
+  private static final class SpanEncoder {
+
+    private final OffsetUnit unit;
+    private final int[] utf8AtUtf16Boundary;
+
+    private SpanEncoder(CharSequence text, OffsetUnit unit) {
+      this.unit = unit;
+      this.utf8AtUtf16Boundary = unit == OffsetUnit.OFFSET_UNIT_UTF8_BYTES
+          ? utf8Boundaries(text) : null;
+    }
+
+    private Span encode(opennlp.tools.util.Span source) {
+      final int start;
+      final int end;
+      if (unit == OffsetUnit.OFFSET_UNIT_UTF8_BYTES) {
+        start = utf8Offset(source.getStart());
+        end = utf8Offset(source.getEnd());
+      } else {
+        start = source.getStart();
+        end = source.getEnd();
+      }
+      return Span.newBuilder().setStart(start).setEnd(end).build();
+    }
+
+    private int utf8Offset(int utf16Offset) {
+      if (utf16Offset < 0 || utf16Offset >= utf8AtUtf16Boundary.length
+          || utf8AtUtf16Boundary[utf16Offset] < 0) {
+        throw new IllegalArgumentException(
+            "offset_unit UTF8_BYTES cannot represent a span boundary inside a UTF-16 "
+                + "surrogate pair at " + utf16Offset
+                + "; use a Unicode-scalar-safe tokenizer such as UAX29 or WHITESPACE");
+      }
+      return utf8AtUtf16Boundary[utf16Offset];
+    }
+
+    private static int[] utf8Boundaries(CharSequence text) {
+      final int[] boundaries = new int[text.length() + 1];
+      java.util.Arrays.fill(boundaries, -1);
+      int utf16 = 0;
+      int utf8 = 0;
+      boundaries[0] = 0;
+      while (utf16 < text.length()) {
+        final int codePoint = Character.codePointAt(text, utf16);
+        utf16 += Character.charCount(codePoint);
+        utf8 += utf8Length(codePoint);
+        boundaries[utf16] = utf8;
+      }
+      return boundaries;
+    }
+
+    private static int utf8Length(int codePoint) {
+      if (codePoint <= 0x7f) {
+        return 1;
+      }
+      if (codePoint <= 0x7ff) {
+        return 2;
+      }
+      if (codePoint <= 0xffff) {
+        return 3;
+      }
+      return 4;
+    }
   }
 
   private static Map<opennlp.tools.util.Span, String> bySpan(

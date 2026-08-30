@@ -32,6 +32,7 @@ import ai.pipestream.opennlp.analysis.v1.AnalyzeRequest;
 import ai.pipestream.opennlp.analysis.v1.AnalyzeResponse;
 import ai.pipestream.opennlp.analysis.v1.GetCapabilitiesRequest;
 import ai.pipestream.opennlp.analysis.v1.GetCapabilitiesResponse;
+import ai.pipestream.opennlp.analysis.v1.OffsetUnit;
 import ai.pipestream.opennlp.analysis.v1.TermVectorOptions;
 import io.grpc.ManagedChannel;
 import io.grpc.Status;
@@ -88,6 +89,8 @@ class AnalysisServiceImplTest {
                 .addSteps(TermVectorOptions.NormalizerStep.NORMALIZER_STEP_FULL_CASE_FOLD)))
         .build());
 
+    assertThat(response.getOffsetUnit())
+        .isEqualTo(OffsetUnit.OFFSET_UNIT_UTF16_CODE_UNITS);
     assertThat(response.getSentencesCount()).isEqualTo(1);
     assertThat(response.getTokensList())
         .extracting(t -> t.getText())
@@ -105,6 +108,58 @@ class AnalysisServiceImplTest {
     assertThat(vector.getOccurrencesList())
         .extracting(s -> s.getStart() + "-" + s.getEnd())
         .containsExactly("0-4", "6-10", "12-17");
+  }
+
+  @Test
+  void utf8ModeConvertsEveryReturnedBoundaryWithoutChangingText() {
+    final AnalyzeResponse response = stub.analyze(AnalyzeRequest.newBuilder()
+        .setText("A 😀 café 東京")
+        .setOptions(AnalysisOptions.newBuilder()
+            .setOffsetUnit(OffsetUnit.OFFSET_UNIT_UTF8_BYTES)
+            .setSentenceDetection(true)
+            .setTermVectors(TermVectorOptions.newBuilder()
+                .setEnabled(true)
+                .setMode(TermVectorOptions.Mode.MODE_FULL)))
+        .build());
+
+    assertThat(response.getOffsetUnit()).isEqualTo(OffsetUnit.OFFSET_UNIT_UTF8_BYTES);
+    assertThat(response.getSentencesList())
+        .extracting(span -> span.getStart() + "-" + span.getEnd())
+        .containsExactly("0-19");
+    assertThat(response.getTokensList())
+        .extracting(token -> token.getText() + "@" + token.getSpan().getStart()
+            + "-" + token.getSpan().getEnd())
+        .containsExactly("A@0-1", "😀@2-6", "café@7-12", "東京@13-19");
+    assertThat(response.getTermVectorsList())
+        .extracting(vector -> vector.getTerm() + "@"
+            + vector.getOccurrences(0).getStart() + "-"
+            + vector.getOccurrences(0).getEnd())
+        .containsExactly("a@0-1", "😀@2-6", "café@7-12", "東京@13-19");
+  }
+
+  @Test
+  void anUnknownOffsetUnitIsRejected() {
+    assertThatThrownBy(() -> stub.analyze(AnalyzeRequest.newBuilder()
+        .setText("text")
+        .setOptions(AnalysisOptions.newBuilder().setOffsetUnitValue(999))
+        .build()))
+        .isInstanceOfSatisfying(StatusRuntimeException.class,
+            error -> assertThat(error.getStatus().getCode())
+                .isEqualTo(Status.Code.INVALID_ARGUMENT));
+  }
+
+  @Test
+  void utf8ModeRefusesATokenizerThatSplitsASupplementaryScalar() {
+    assertThatThrownBy(() -> stub.analyze(AnalyzeRequest.newBuilder()
+        .setText("😀")
+        .setOptions(AnalysisOptions.newBuilder()
+            .setTokenizer(AnalysisOptions.Tokenizer.TOKENIZER_SIMPLE)
+            .setOffsetUnit(OffsetUnit.OFFSET_UNIT_UTF8_BYTES))
+        .build()))
+        .isInstanceOfSatisfying(StatusRuntimeException.class, error -> {
+          assertThat(error.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT);
+          assertThat(error.getStatus().getDescription()).contains("surrogate pair", "UAX29");
+        });
   }
 
   @Test
@@ -226,6 +281,10 @@ class AnalysisServiceImplTest {
         .build();
     stub.analyze(request);
     stub.analyze(request);
+    stub.analyze(AnalyzeRequest.newBuilder().setText("UTF-8 output")
+        .setOptions(request.getOptions().toBuilder()
+            .setOffsetUnit(OffsetUnit.OFFSET_UNIT_UTF8_BYTES))
+        .build());
     stub.analyze(AnalyzeRequest.newBuilder().setText("other text")
         .setOptions(AnalysisOptions.newBuilder()
             .setStemmer(AnalysisOptions.Stemmer.STEMMER_SNOWBALL_ENGLISH))
@@ -268,5 +327,9 @@ class AnalysisServiceImplTest {
     assertThat(capabilities.getLatticeAvailable()).isFalse();
     assertThat(capabilities.getSentencepieceAvailable()).isFalse();
     assertThat(capabilities.getDependencyParseAvailable()).isFalse();
+    assertThat(capabilities.getSupportedOffsetUnitsList())
+        .containsExactlyInAnyOrder(
+            OffsetUnit.OFFSET_UNIT_UTF16_CODE_UNITS,
+            OffsetUnit.OFFSET_UNIT_UTF8_BYTES);
   }
 }

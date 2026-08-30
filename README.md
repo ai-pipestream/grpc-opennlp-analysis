@@ -13,7 +13,7 @@
 A pure-gRPC NLP analysis service wrapping Apache OpenNLP 3.x, built for
 downstream search consumers (turbovec BM25/vector indexing). One `Analyze`
 call turns raw text into tokens, sentences, stems, entities, term vectors, and
-chunk embeddings — all with **original-text offsets** — and `AnalyzeStream`
+chunk embeddings — all with **original-text offsets in an explicit unit** — and `AnalyzeStream`
 carries the same analysis for bulk indexing: many documents over one bidi
 call, paced by server-side flow control.
 
@@ -27,8 +27,10 @@ call, paced by server-side flow control.
 
 ## Why offsets matter
 
-Every `Span` in every response is expressed in the character offsets of the
-**original request text** — even for terms produced over normalized text.
+Every `Span` in every response is expressed against the **original request
+text** — even for terms produced over normalized text. UTF-16 code units remain
+the backward-compatible default; a request may instead select UTF-8 byte
+offsets, and every response echoes the resolved unit.
 Term identity runs through OpenNLP's offset-aware `Alignment`: with the
 `FULL_CASE_FOLD` step, `"Groß"`, `"groß"`, and `"GROSS"` collapse into one term
 `gross`, while each occurrence still carries its exact original span
@@ -111,9 +113,12 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
 | `dependency_parse` | bool | `false` | Needs a dependency-parsing model + POS model (implies `pos_tags`); otherwise a warning |
 | `relations` | `RelationOptions` | disabled | Dependency-path patterns between entities. Needs NER + depparse models; otherwise a warning |
 | `geo` | bool | `false` | Geocodes location entities against the bundled Natural Earth gazetteer. Needs an NER model (implies `ner`); otherwise a warning |
+| `offset_unit` | `OffsetUnit` | `OFFSET_UNIT_UTF16_CODE_UNITS` | Coordinate system for every returned span: Java/OpenNLP UTF-16 code units or original-text UTF-8 bytes |
 
 `AnalyzeResponse`:
 
+- `offset_unit` — resolved coordinate system shared by every returned span;
+  an absent value from an older server means UTF-16 code units
 - `sentences` — sentence spans in original text coordinates
 - `tokens` — span + covered text (+ `pos` when a POS model served the request)
 - `stems` — one stem per token, exactly parallel to `tokens`
@@ -141,6 +146,12 @@ Package `ai.pipestream.opennlp.analysis.v1`, file
 - `warnings` — requested-but-unavailable features (no embedding model loaded,
   no POS/NER model configured, …). Requests never fail just because an
   optional model-backed feature is unavailable.
+
+Changing `offset_unit` changes only the numeric ruler, never tokenization,
+normalization, term identity, covered text, or scoring. UTF-8 mode refuses a
+pipeline that produces a boundary inside a surrogate pair; use a
+Unicode-scalar-safe tokenizer such as `TOKENIZER_UAX29` or
+`TOKENIZER_WHITESPACE` for text containing supplementary characters.
 
 Errors: empty text or text over the size cap → `INVALID_ARGUMENT`; term
 vectors with `source: SOURCE_STEMS` but no stemmer → `INVALID_ARGUMENT`;
