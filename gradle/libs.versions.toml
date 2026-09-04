@@ -3,7 +3,7 @@ protobuf = "4.36.1"
 grpc = "1.83.1"
 junit = "6.1.3"
 assertj = "3.27.7"
-slf4j = "2.0.18"
+slf4j = "2.0.19"
 # Experimental Apache OpenNLP 3.x preview, published as ai.pipestream snapshots.
 # The intent is to migrate to org.apache.opennlp 3.x as the preview features land upstream.
 opennlp = "0.0.0-preview-SNAPSHOT"
